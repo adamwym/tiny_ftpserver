@@ -385,11 +385,9 @@ void ftp_session::cmd_list_handler()
     //n = sprintf(m_buff, "%s\r\n", "this ia a ls test");
     FILE *fp;
     fp = popen("ls -al", "r");
+    fgets(m_buff, FTP_BUFF_SIZE, fp);
     while (!feof(fp))
     {
-
-//        n = fread(m_buff, 1, FTP_BUFF_SIZE, fp);
-        fgets(m_buff, FTP_BUFF_SIZE, fp);
         n = strlen(m_buff);
         if (m_buff[n - 1] == '\n')
         {
@@ -399,6 +397,7 @@ void ftp_session::cmd_list_handler()
             ++n;
         }
         send_message(n);
+        fgets(m_buff, FTP_BUFF_SIZE, fp);
     }
     fclose(fp);
     //end todo
