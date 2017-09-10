@@ -7,6 +7,7 @@
 
 #include "ftp_def.h"
 #include <stddef.h>
+#include <limits.h>
 
 //forward declaration
 struct passwd;
@@ -45,6 +46,9 @@ private:
     void cmd_mkd_handler(char* _buff);
     void cmd_rmd_handler(char* _buff);
     void cmd_dele_handler(char* _buff);
+    void cmd_rnfr_handler(char *_buff);
+    void cmd_rnto_handler(char *_buff);
+
     void send_ctl_error(int _err_code,const char* _err_message,int _close=1);
 
     struct ftp_status{
@@ -53,6 +57,8 @@ private:
         int is_passive=0;
         int opened_message_fd=-1;
         int type_mode=-1;
+        int wait_rnto=0;
+        char rn_buff[NAME_MAX+1];
     };
     char m_buff[FTP_BUFF_SIZE+1];
     int m_ctl_socket;

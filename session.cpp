@@ -151,6 +151,16 @@ int ftp_session::parse_command(char **_cmd, size_t _length)
             int_return=FTP_CMD_DELE;
             break;
         }
+        if (strstr(*_cmd,"RNFR")==*_cmd){
+            *_cmd+=5;
+            int_return=FTP_CMD_RNFR;
+            break;
+        }
+        if (strstr(*_cmd, "RNTO") == *_cmd) {
+            *_cmd+=5;
+            int_return=FTP_CMD_RNTO;
+            break;
+        }
     } while (0);
     return int_return;
 }
@@ -240,6 +250,12 @@ void ftp_session::start_handle()
                 break;
             case FTP_CMD_DELE:
                 cmd_dele_handler(buff);
+                break;
+            case FTP_CMD_RNFR:
+                cmd_rnfr_handler(buff);
+                break;
+            case FTP_CMD_RNTO:
+                cmd_rnto_handler(buff);
                 break;
             default:
                 send_ctl_error(FTP_NON_EXEC, "Unsupported command.", 0);
@@ -506,5 +522,34 @@ void ftp_session::cmd_dele_handler(char *_buff)
         return;
     }
     int n=sprintf(m_buff,"%d Delete operation successful.\r\n",FTP_FIN_FILEB);
+    send_ctl(n);
+}
+void ftp_session::cmd_rnfr_handler(char *_buff)
+{
+    rm_CRLF(_buff);
+    if (access(_buff, F_OK)) {
+        send_ctl_error(FTP_FILE_UNAVAILABLE, "RNFR command failed.", 0);
+        m_status.wait_rnto=0;
+        return;
+    }
+    memcpy(m_status.rn_buff, _buff, strlen(_buff)+1);
+    m_status.wait_rnto=1;
+    int n = sprintf(m_buff, "%d Ready for RNTO.\r\n", FTP_FILEB_PAUSED);
+    send_ctl(n);
+}
+void ftp_session::cmd_rnto_handler(char *_buff)
+{
+    if (!m_status.wait_rnto) {
+        send_ctl_error(FTP_SEQ_ERROR, "RNTO command failed.", 0);
+        return;
+    }
+    rm_CRLF(_buff);
+    if (rename(m_status.rn_buff, _buff)) {
+        send_ctl_error(FTP_NAME_UNAVAILABLE, "Rename failed.", 0);
+        m_status.wait_rnto=0;
+        return;
+    }
+    m_status.wait_rnto=0;
+    int n = sprintf(m_buff, "%d Rename successful.\r\n", FTP_FIN_FILEB);
     send_ctl(n);
 }
