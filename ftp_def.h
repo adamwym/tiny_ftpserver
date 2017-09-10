@@ -26,7 +26,8 @@
 #define FTP_SUCCESS 200
 #define FTP_FILEB_PAUSED 350
 
-enum {
+enum
+{
     FTP_TYPE_ASCII,
     FTP_TYPE_BINARY,
 
@@ -46,6 +47,7 @@ enum {
     FTP_CMD_RMD,
     FTP_CMD_DELE,
     FTP_CMD_RNFR,
-    FTP_CMD_RNTO
+    FTP_CMD_RNTO,
+    FTP_CMD_CDUP
 };
 #endif //TINY_FTPSERVER_FTP_DEF_H

@@ -14,7 +14,7 @@ using namespace std;
 void sigchild_handler(int i)
 {
     pid_t pid;
-    while((pid= waitpid(-1, nullptr, WNOHANG))>0)
+    while ((pid = waitpid(-1, nullptr, WNOHANG)) > 0)
         cout << "one client disconnected with pid " << pid << endl;
 }
 
@@ -50,7 +50,7 @@ int main()
     server_addr.sin_addr.s_addr = INADDR_ANY;
     if (bind(socketfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
     {
-        cout<<"error while binding"<<endl;
+        cout << "error while binding" << endl;
         exit(1);
     }
     listen(socketfd, 10);
