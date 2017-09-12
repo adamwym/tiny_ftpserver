@@ -169,6 +169,11 @@ int ftp_session::parse_command(char **_cmd, size_t _length)
             int_return = FTP_CMD_CDUP;
             break;
         }
+        if (strstr(*_cmd, "NOOP") == *_cmd)
+        {
+            int_return = FTP_CMD_NOOP;
+            break;
+        }
 
     } while (0);
     return int_return;
@@ -268,6 +273,9 @@ void ftp_session::start_handle()
                 break;
             case FTP_CMD_CDUP:
                 cmd_cdup_handler();
+                break;
+            case FTP_CMD_NOOP:
+                cmd_noop_handler();
                 break;
             default:
                 send_ctl_error(FTP_NON_EXEC, "Unsupported command.", 0);
@@ -576,5 +584,10 @@ void ftp_session::cmd_cdup_handler()
         return;
     }
     int n = sprintf(m_buff, "%d Directory successfully changed.\r\n", FTP_FIN_FILEB);
+    send_ctl(n);
+}
+void ftp_session::cmd_noop_handler()
+{
+    int n = sprintf(m_buff, "%d\r\n", FTP_SUCCESS);
     send_ctl(n);
 }
