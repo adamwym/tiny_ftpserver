@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <stdio.h>
 #include "ftp_def.h"
+#include "fd_transfer.h"
 //#include <malloc.h>
 #include <string.h>
 #include <stdlib.h>
@@ -20,53 +21,8 @@
 
 void ftp_session::ftp_init()
 {
-//    struct spwd *sp;
-//    //send ftp_ready
-//    char username[256];
-//    char passwd[256];
     int n = sprintf(m_buff, "%d (tiny_ftp)\r\n", FTP_READY);
     send_ctl(n);
-//    //gonna recv ready
-//    n = recv_ctl();
-//    char *buff = m_buff;
-//    if (parse_command(&buff, n) != FTP_CMD_USER)
-//    {
-//        send_ctl(sprintf(m_buff, "%d you need to login first\r\n", FTP_NON_LOGIN_INET));
-//        close_ctl_socket();
-//        exit(1);
-//    }
-//    get_message(buff, username, 256);
-//    //std::cout<<buff<<strlen(buff)<<std::endl;
-//    n = sprintf(m_buff, "%d please specify password\r\n", FTP_NEED_PASS);
-//    send_ctl(n);
-//    n = recv_ctl();
-//    buff = m_buff;
-//    if (parse_command(&buff, n) != FTP_CMD_PASS)
-//    {
-////        send_ctl(sprintf(m_buff, "%d you need to login first\r\n", FTP_NON_LOGIN_INET));
-////        close_ctl_socket();
-//        exit(1);
-//    }
-//    get_message(buff, passwd, 256);
-////    std::cout<<buff<<strlen(buff)<<std::endl;
-////    std::cout<<username<<strlen(username)<<std::endl;
-////    std::cout<<passwd<<strlen(passwd)<<std::endl;
-//
-//    if (!(sp = getspnam(username)) && (strcmp(sp->sp_pwdp, (char *) crypt(passwd, sp->sp_pwdp)) != 0))
-//    {
-//        send_ctl(sprintf(m_buff, "%d login incorrect\r\n", FTP_NON_LOGIN_INET));
-//        close_ctl_socket();
-//        exit(1);
-//    }
-////    std::cout<<(strcmp(sp->sp_pwdp,(char*)crypt(passwd,sp->sp_pwdp)))<<std::endl;
-//    send_ctl(sprintf(m_buff, "%d login successful\r\n", FTP_LOGIN_INET));
-//    n = recv_ctl();
-//    buff = m_buff;
-//    if (parse_command(&buff, n) != FTP_CMD_SYST)
-//    {
-//        exit(1);
-//    }
-//    send_ctl(sprintf(m_buff, "%d UNIX Type: L8\r\n", FTP_SYS_TYPE));
 }
 int ftp_session::parse_command(char **_cmd, size_t _length)
 {
@@ -169,7 +125,12 @@ int ftp_session::parse_command(char **_cmd, size_t _length)
             int_return = FTP_CMD_CDUP;
             break;
         }
-
+        if (strstr(*_cmd, "PORT") == *_cmd)
+        {
+            *_cmd += 5;
+            int_return = FTP_CMD_PORT;
+            break;
+        }
     } while (0);
     return int_return;
 }
@@ -269,6 +230,9 @@ void ftp_session::start_handle()
             case FTP_CMD_CDUP:
                 cmd_cdup_handler();
                 break;
+            case FTP_CMD_PORT:
+                cmd_port_handler(buff);
+                break;
             default:
                 send_ctl_error(FTP_NON_EXEC, "Unsupported command.", 0);
                 break;
@@ -277,6 +241,7 @@ void ftp_session::start_handle()
     if (n == 0)
     {
         close(m_data_socket);
+        close(m_fd_transfer_fd);
         close_ctl_socket();
     }
     if (n == -1)
@@ -577,4 +542,29 @@ void ftp_session::cmd_cdup_handler()
     }
     int n = sprintf(m_buff, "%d Directory successfully changed.\r\n", FTP_FIN_FILEB);
     send_ctl(n);
+}
+void ftp_session::cmd_port_handler(char *_buff)
+{
+    rm_CRLF(_buff);
+    uint16_t port;
+    char *ptr = strrchr(_buff, ',');
+    port = atoi(ptr + 1);
+    *ptr = '\0';
+    ptr = strrchr(_buff, ',');
+    port += atoi(ptr + 1) * 256;
+    *ptr = '\0';
+    for (int i = 0; i < strlen(_buff); ++i)
+    {
+        if (_buff[i] == ',')
+            _buff[i] = '.';
+    }
+    send_request(m_fd_transfer_fd, _buff, port);
+    m_status.opened_message_fd = recv_fd(m_fd_transfer_fd);
+    if (m_status.opened_message_fd < 0)
+    {
+        send_ctl_error(FTP_NON_LOGIN_INET, "PORT command failed.");
+    }
+    int n = sprintf(m_buff, "%d PORT command successful. Consider using PASV.\r\n", FTP_SUCCESS);
+    send_ctl(n);
+    m_status.is_passive = 0;
 }
