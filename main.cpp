@@ -8,7 +8,9 @@
 #include <cstring>
 #include <libnet.h>
 #include <wait.h>
+#include <vector>
 #include "session.h"
+#include "fd_transfer.h"
 
 using namespace std;
 void sigchild_handler(int i)
@@ -18,7 +20,6 @@ void sigchild_handler(int i)
         cout << "one client disconnected with pid " << pid << endl;
 }
 
-//void *netaddrptr = nullptr;
 int main()
 {
     signal(SIGCHLD, sigchild_handler);
@@ -27,6 +28,7 @@ int main()
         cout << "error: not running as su" << endl;
         exit(1);
     }
+
 //    struct ifaddrs *ifaddr = nullptr;
 //
 //    char addrbuff[INET_ADDRSTRLEN];
@@ -56,38 +58,81 @@ int main()
     listen(socketfd, 10);
     int sockaccept = -1;
     int forknum = -1;
-    while ((sockaccept = accept(socketfd, nullptr, nullptr)) != -1)
+    vector<int> fd_arry;
+    fd_set result, fdset;
+    int maxfd = socketfd;
+    FD_ZERO(&fdset);
+    FD_SET(socketfd, &fdset);
+    for (;;)
     {
-        cout << "one client connected" << endl;
-        if ((forknum = fork()) == 0)//child
+        result = fdset;
+        if (select(maxfd + 1, &result, NULL, NULL, NULL) == -1)
         {
-            close(socketfd);
-            ftp_session sess(sockaccept);
-            sess.ftp_init();
-            sess.start_handle();
-            //sess.close_ctl_socket();
-            exit(0);
-        } else//parent
+            if (errno == EINTR)
+                continue;
+            cout << "select error" << endl;
+            exit(1);
+        }
+        if (FD_ISSET(socketfd, &result))
         {
-            close(sockaccept);
+            cout << "one client connected" << endl;
+            sockaccept = accept(socketfd, NULL, NULL);
+            int forkpid;
+            int fd[2];
+            socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
+            if ((forkpid = fork()) == 0)//child
+            {
+                close(socketfd);
+                close(fd[0]);
+                ftp_session sess(sockaccept, fd[1]);
+                sess.ftp_init();
+                sess.start_handle();
+                exit(0);
+            } else if (forkpid > 0)
+            {
+                close(sockaccept);
+                close(fd[1]);
+                if (fd[0] > maxfd)
+                    maxfd = fd[0];
+                FD_SET(fd[0], &fdset);
+                fd_arry.push_back(fd[0]);
+            } else
+            {
+                close(sockaccept);
+                continue;
+            }
+        }
+        for (auto i = fd_arry.begin(); i != fd_arry.end();)
+        {
+            if (FD_ISSET(*i, &result))
+            {
+                struct sockaddr_in sockaddr, socklocal;
+                if (recv_request(*i, &sockaddr))
+                {
+                    memset(&socklocal, 0, sizeof(socklocal));
+                    socklocal.sin_port = htons(20);
+                    socklocal.sin_family = AF_INET;
+                    socklocal.sin_addr.s_addr = sockaddr.sin_addr.s_addr;
+                    int sock_to_send = socket(AF_INET, SOCK_STREAM, 0);
+                    int flag = 1;
+                    setsockopt(sock_to_send, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int));
+                    bind(sock_to_send, (struct sockaddr *) &socklocal, sizeof(socklocal));
+                    connect(sock_to_send, (struct sockaddr *) &sockaddr, sizeof(struct sockaddr_in));
+                    send_fd(*i, sock_to_send);
+                    close(sock_to_send);
+                    ++i;
+                } else
+                {
+                    //child closed,remove fd
+                    close(*i);
+                    FD_CLR(*i, &fdset);
+                    cout << "one client deleted" << endl;
+                    fd_arry.erase(i);
+                }
+            } else
+                ++i;
         }
     }
-//    char buff[256];
-//    while ((sockaccept=accept(socketfd, nullptr, nullptr))!=-1){
-//        cout<<"one client connect"<<endl;
-//        int n=sprintf(buff,"%d %s\r\n",220,"(tiny_ftpserver)");
-//        send(sockaccept,buff,n,0);
-//        //while ((n=recv(sockaccept,buff,256,0))>0){
-//        recv(sockaccept,buff,256,0);
-//        cout<<buff<<endl;
-//               send(sockaccept,"331 pass\r\n",10,0);
-//        recv(sockaccept,buff,256,0);
-//        send(sockaccept,"230 ok\r\n",8,0);
-//        recv(sockaccept,buff,256,0);
-//        send(sockaccept,"215 UNIX Type: L8\r\n",19,0);
-//        //}
-//        close(sockaccept);
-//        cout<<"disconnect"<<endl;
-//    }
+
     return 0;
 }

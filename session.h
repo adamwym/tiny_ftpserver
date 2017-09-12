@@ -16,7 +16,8 @@ struct passwd;
 class ftp_session
 {
 public:
-    ftp_session(int _socketfd) : m_ctl_socket(_socketfd), m_data_socket(-1), m_pass(nullptr), m_status() {}
+    ftp_session(int _socketfd, int _fd_transfer_fd) : m_ctl_socket(_socketfd), m_fd_transfer_fd(_fd_transfer_fd),
+                                                      m_data_socket(-1), m_pass(nullptr), m_status() {}
 
     void ftp_init();
 
@@ -50,6 +51,7 @@ private:
     void cmd_rnto_handler(char *_buff);
     void cmd_cdup_handler();
     void cmd_noop_handler();
+    void cmd_port_handler(char *_buff);
     void send_ctl_error(int _err_code, const char *_err_message, int _close = 1);
 
     struct ftp_status
@@ -61,12 +63,12 @@ private:
         int type_mode = -1;
         int wait_rnto = 0;
         char rn_buff[NAME_MAX + 1];
+        int port_socket = -1;
     };
     char m_buff[FTP_BUFF_SIZE + 1];
     int m_ctl_socket;
     int m_data_socket;
-
-    //char m_username[256];
+    int m_fd_transfer_fd;
     struct passwd *m_pass;
     ftp_status m_status;
 };

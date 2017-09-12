@@ -49,6 +49,7 @@ enum
     FTP_CMD_RNFR,
     FTP_CMD_RNTO,
     FTP_CMD_CDUP,
-    FTP_CMD_NOOP
+    FTP_CMD_NOOP,
+    FTP_CMD_PORT
 };
 #endif //TINY_FTPSERVER_FTP_DEF_H
