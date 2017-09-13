@@ -25,6 +25,7 @@
 #define FTP_PASSIVE_MODE 227
 #define FTP_SUCCESS 200
 #define FTP_FILEB_PAUSED 350
+#define FTP_FILE_STATUS_RESPONSE 213
 
 enum
 {
@@ -50,6 +51,7 @@ enum
     FTP_CMD_RNTO,
     FTP_CMD_CDUP,
     FTP_CMD_NOOP,
-    FTP_CMD_PORT
+    FTP_CMD_PORT,
+    FTP_CMD_SIZE
 };
 #endif //TINY_FTPSERVER_FTP_DEF_H

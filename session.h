@@ -52,6 +52,7 @@ private:
     void cmd_cdup_handler();
     void cmd_noop_handler();
     void cmd_port_handler(char *_buff);
+    void cmd_size_handler(char *_buff);
     void send_ctl_error(int _err_code, const char *_err_message, int _close = 1);
 
     struct ftp_status

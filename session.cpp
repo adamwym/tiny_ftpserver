@@ -137,6 +137,12 @@ int ftp_session::parse_command(char **_cmd, size_t _length)
             int_return = FTP_CMD_PORT;
             break;
         }
+        if (strstr(*_cmd, "SIZE") == *_cmd)
+        {
+            *_cmd += 5;
+            int_return = FTP_CMD_SIZE;
+            break;
+        }
     } while (0);
     return int_return;
 }
@@ -238,8 +244,12 @@ void ftp_session::start_handle()
                 break;
             case FTP_CMD_NOOP:
                 cmd_noop_handler();
+                break;
             case FTP_CMD_PORT:
                 cmd_port_handler(buff);
+                break;
+            case FTP_CMD_SIZE:
+                cmd_size_handler(buff);
                 break;
             default:
                 send_ctl_error(FTP_NON_EXEC, "Unsupported command.", 0);
@@ -580,4 +590,16 @@ void ftp_session::cmd_port_handler(char *_buff)
     int n = sprintf(m_buff, "%d PORT command successful. Consider using PASV.\r\n", FTP_SUCCESS);
     send_ctl(n);
     m_status.is_passive = 0;
+}
+void ftp_session::cmd_size_handler(char *_buff)
+{
+    rm_CRLF(_buff);
+    struct stat filestat;
+    if (stat(_buff, &filestat) || !S_ISREG(filestat.st_mode))
+    {
+        send_ctl_error(FTP_FILE_UNAVAILABLE, "Could not get file size.", 0);
+        return;
+    }
+    int n = sprintf(m_buff, "%d %ld\r\n", FTP_FILE_STATUS_RESPONSE, filestat.st_size);
+    send_ctl(n);
 }
