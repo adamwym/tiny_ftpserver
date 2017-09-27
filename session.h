@@ -16,8 +16,10 @@ struct passwd;
 class ftp_session
 {
 public:
-    ftp_session(int _socketfd, int _fd_transfer_fd) : m_ctl_socket(_socketfd), m_fd_transfer_fd(_fd_transfer_fd),
-                                                      m_data_socket(-1), m_pass(nullptr), m_status() {}
+    ftp_session(int _socketfd, int _fd_transfer_fd, conf_status *_conf) : m_ctl_socket(_socketfd),
+                                                                          m_fd_transfer_fd(_fd_transfer_fd),
+                                                                          m_data_socket(-1), m_pass(nullptr),
+                                                                          m_status(), m_conf(_conf) {}
 
     void ftp_init();
 
@@ -40,7 +42,7 @@ private:
     void cmd_pwd_handler();
     void cmd_cwd_handler(char *_buff);
     void cmd_pasv_handler();
-    void cmd_list_handler();
+    void cmd_list_handler(char *_buff);
     void cmd_type_handler(char *_buff);
     void cmd_retr_handler(char *_buff);
     void cmd_stor_handler(char *_buff);
@@ -57,6 +59,7 @@ private:
 
     struct ftp_status
     {
+        int is_anon = 0;
         int is_login = 0;
         int specifyed_user = 0;
         int is_passive = 0;
@@ -70,6 +73,7 @@ private:
     int m_ctl_socket;
     int m_data_socket;
     int m_fd_transfer_fd;
+    conf_status *m_conf;
     struct passwd *m_pass;
     ftp_status m_status;
 };

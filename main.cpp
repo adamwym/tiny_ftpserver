@@ -1,4 +1,5 @@
 #include <iostream>
+#include <pwd.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 //#include <netdb.h>
@@ -11,6 +12,7 @@
 #include <vector>
 #include "session.h"
 #include "fd_transfer.h"
+#include "parse_conf.h"
 
 using namespace std;
 void sigchild_handler(int i)
@@ -28,7 +30,52 @@ int main()
         cout << "error: not running as su" << endl;
         exit(1);
     }
+    conf_status *conf = (conf_status *) malloc(sizeof(conf_status));
+    new(conf) conf_status;
+    if (conf_parse("../tiny_ftpserver.conf") != 1)
+    {
+        cout << "load conf file failed,using default settings." << endl;
+        goto set_default_passwd;
+    } else
+    {
+        int status;
+        if (conf_has_key("read_only") && (status = conf_get_bool_YES_NO("read_only")) != -1)
+        {
+            conf->conf_read_only = status;
+        }
+        if (conf_has_key("anon_enabled") && (status = conf_get_bool_YES_NO("anon_enabled")) != -1)
+        {
+            conf->conf_anon_enable = status;
+            cout << "anon enabled " << conf->conf_anon_enable << endl;
+        }
+        if (conf_has_key("anon_read_only") && (status = conf_get_bool_YES_NO("anon_read_only")) != -1)
+        {
+            conf->conf_anon_read_only = status;
+            cout << "anon readonly " << conf->conf_anon_read_only << endl;
+        }
+        if (conf_has_key("anon_root") && !access(conf_get_string("anon_root"), F_OK))
+        {
+            conf->conf_anon_root = conf_get_string("anon_root");
+            cout << "anon root " << conf->conf_anon_root << endl;
+        }
+        if (conf_has_key("anon_user"))
+        {
+            conf->conf_anon_user = conf_get_string("anon_user");
+            cout << conf->conf_anon_user << endl;
+        }
 
+
+        if (!conf_has_key("anon_login_as") || !(conf->conf_anon_login_as = getpwnam(conf_get_string("anon_login_as"))))
+        {
+            set_default_passwd:
+            if (!(conf->conf_anon_login_as = getpwnam("ftp")))
+            {
+                cout << "anon_login_as: user not exists." << endl;
+                exit(1);
+            }
+        }
+    }
+    conf_free();
 //    struct ifaddrs *ifaddr = nullptr;
 //
 //    char addrbuff[INET_ADDRSTRLEN];
@@ -44,6 +91,7 @@ int main()
 //        }
 //        ifaddr = ifaddr->ifa_next;
 //    }
+
     int socketfd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
@@ -84,7 +132,7 @@ int main()
             {
                 close(socketfd);
                 close(fd[0]);
-                ftp_session sess(sockaccept, fd[1]);
+                ftp_session sess(sockaccept, fd[1], conf);
                 sess.ftp_init();
                 sess.start_handle();
                 exit(0);
@@ -133,6 +181,6 @@ int main()
                 ++i;
         }
     }
-
+    free(conf);
     return 0;
 }

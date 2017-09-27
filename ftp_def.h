@@ -5,6 +5,7 @@
 #ifndef TINY_FTPSERVER_FTP_DEF_H
 #define TINY_FTPSERVER_FTP_DEF_H
 
+#include <string>
 #define FTP_BUFF_SIZE 4096
 
 #define FTP_READY 220
@@ -27,6 +28,7 @@
 #define FTP_FILEB_PAUSED 350
 #define FTP_FILE_STATUS_RESPONSE 213
 
+#define FTP_ERROR_MESSAGE_PERMISSION_DENIED "Permission denied."
 enum
 {
     FTP_TYPE_ASCII,
@@ -53,5 +55,16 @@ enum
     FTP_CMD_NOOP,
     FTP_CMD_PORT,
     FTP_CMD_SIZE
+};
+
+#define CONF_GROUP_NAME "tiny_ftpserver"
+struct conf_status
+{
+    bool conf_read_only = 0;
+    bool conf_anon_enable = 0;
+    std::string conf_anon_user = "anonymous";
+    bool conf_anon_read_only = 1;
+    std::string conf_anon_root = "/var/ftp";
+    struct passwd *conf_anon_login_as = NULL;
 };
 #endif //TINY_FTPSERVER_FTP_DEF_H

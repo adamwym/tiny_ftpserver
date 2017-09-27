@@ -18,6 +18,7 @@
 #include <sys/stat.h>
 #include <assert.h>
 #include <limits.h>
+#include "ls.h"
 
 void ftp_session::ftp_init()
 {
@@ -29,61 +30,6 @@ int ftp_session::parse_command(char **_cmd, size_t _length)
     int int_return = -1;
     do
     {
-        if (strstr(*_cmd, "USER") == *_cmd)
-        {
-            *_cmd += 5;
-            int_return = FTP_CMD_USER;
-            break;
-        }
-        if (strstr(*_cmd, "PASS") == *_cmd)
-        {
-            *_cmd += 5;
-            int_return = FTP_CMD_PASS;
-            break;
-        }
-        if (strstr(*_cmd, "SYST") == *_cmd)
-        {
-            int_return = FTP_CMD_SYST;
-            break;
-        }
-        if (strstr(*_cmd, "PASV") == *_cmd)
-        {
-            int_return = FTP_CMD_PASV;
-            break;
-        }
-        if (strstr(*_cmd, "LIST") == *_cmd)
-        {
-            int_return = FTP_CMD_LIST;
-            break;
-        }
-        if (strstr(*_cmd, "QUIT") == *_cmd)
-        {
-            int_return = FTP_CMD_QUIT;
-            break;
-        }
-        if (strstr(*_cmd, "PWD") == *_cmd)
-        {
-            int_return = FTP_CMD_PWD;
-            break;
-        }
-        if (strstr(*_cmd, "CWD") == *_cmd)
-        {
-            *_cmd += 4;
-            int_return = FTP_CMD_CWD;
-            break;
-        }
-        if (strstr(*_cmd, "TYPE") == *_cmd)
-        {
-            *_cmd += 5;
-            int_return = FTP_CMD_TYPE;
-            break;
-        }
-        if (strstr(*_cmd, "RETR") == *_cmd)
-        {
-            *_cmd += 5;
-            int_return = FTP_CMD_RETR;
-            break;
-        }
         if (strstr(*_cmd, "STOR") == *_cmd)
         {
             *_cmd += 5;
@@ -120,6 +66,62 @@ int ftp_session::parse_command(char **_cmd, size_t _length)
             int_return = FTP_CMD_RNTO;
             break;
         }
+        if (strstr(*_cmd, "USER") == *_cmd)
+        {
+            *_cmd += 5;
+            int_return = FTP_CMD_USER;
+            break;
+        }
+        if (strstr(*_cmd, "PASS") == *_cmd)
+        {
+            *_cmd += 5;
+            int_return = FTP_CMD_PASS;
+            break;
+        }
+        if (strstr(*_cmd, "SYST") == *_cmd)
+        {
+            int_return = FTP_CMD_SYST;
+            break;
+        }
+        if (strstr(*_cmd, "PASV") == *_cmd)
+        {
+            int_return = FTP_CMD_PASV;
+            break;
+        }
+        if (strstr(*_cmd, "LIST") == *_cmd)
+        {
+            *_cmd += 5;
+            int_return = FTP_CMD_LIST;
+            break;
+        }
+        if (strstr(*_cmd, "QUIT") == *_cmd)
+        {
+            int_return = FTP_CMD_QUIT;
+            break;
+        }
+        if (strstr(*_cmd, "PWD") == *_cmd)
+        {
+            int_return = FTP_CMD_PWD;
+            break;
+        }
+        if (strstr(*_cmd, "CWD") == *_cmd)
+        {
+            *_cmd += 4;
+            int_return = FTP_CMD_CWD;
+            break;
+        }
+        if (strstr(*_cmd, "TYPE") == *_cmd)
+        {
+            *_cmd += 5;
+            int_return = FTP_CMD_TYPE;
+            break;
+        }
+        if (strstr(*_cmd, "RETR") == *_cmd)
+        {
+            *_cmd += 5;
+            int_return = FTP_CMD_RETR;
+            break;
+        }
         if (strstr(*_cmd, "CDUP") == *_cmd)
         {
             int_return = FTP_CMD_CDUP;
@@ -130,7 +132,6 @@ int ftp_session::parse_command(char **_cmd, size_t _length)
             int_return = FTP_CMD_NOOP;
             break;
         }
-
         if (strstr(*_cmd, "PORT") == *_cmd)
         {
             *_cmd += 5;
@@ -204,7 +205,7 @@ void ftp_session::start_handle()
                 cmd_pasv_handler();
                 break;
             case FTP_CMD_LIST:
-                cmd_list_handler();
+                cmd_list_handler(buff);
                 break;
             case FTP_CMD_QUIT:
                 cmd_quit_handler();
@@ -270,9 +271,23 @@ void ftp_session::start_handle()
 }
 void ftp_session::cmd_user_handler(char *_buff)
 {
+    if (m_status.is_login)
+    {
+        send_ctl_error(FTP_NON_LOGIN_INET, "Can't change user.", 0);
+        return;
+    }
     char username[256];
     get_message(_buff, username, 256);
-    m_pass = getpwnam(username);
+    write(1, username, strlen(username));
+    if (m_conf->conf_anon_enable && !m_conf->conf_anon_user.compare(username))
+    {
+        m_pass = m_conf->conf_anon_login_as;
+        m_status.is_anon = 1;
+        write(1, "anon\n", 5);
+    } else
+    {
+        m_pass = getpwnam(username);
+    }
     m_status.specifyed_user = 1;
     int n = sprintf(m_buff, "%d please specify password\r\n", FTP_NEED_PASS);
     send_ctl(n);
@@ -282,13 +297,18 @@ void ftp_session::cmd_pass_handler(char *_buff)
     char passwd[256];
     get_message(_buff, passwd, 256);
     struct spwd *sp;
-    if (!m_pass || !(sp = getspnam(m_pass->pw_name)) || strcmp(sp->sp_pwdp, crypt(passwd, sp->sp_pwdp)))
+    if (!m_pass ||
+        !m_status.is_anon && (!(sp = getspnam(m_pass->pw_name)) || strcmp(sp->sp_pwdp, crypt(passwd, sp->sp_pwdp))))
     {
         send_ctl_error(FTP_NON_LOGIN_INET, "login failed");
     }
+
+    if (m_status.is_anon && chroot(m_conf->conf_anon_root.c_str()))
+        send_ctl_error(FTP_FILE_UNAVAILABLE, "chroot error");
     setgid(m_pass->pw_gid);
     setuid(m_pass->pw_uid);
-    chdir(m_pass->pw_dir);
+    if (chdir(m_status.is_anon ? "/" : m_pass->pw_dir))
+        send_ctl_error(FTP_NON_LOGIN_INET, "login failed.");
     m_status.is_login = 1;
     send_ctl(sprintf(m_buff, "%d login successful\r\n", FTP_LOGIN_INET));
 }
@@ -359,31 +379,21 @@ void ftp_session::cmd_pasv_handler()
     send_ctl(num);
     m_status.opened_message_fd = accept(m_data_socket, nullptr, nullptr);
 }
-void ftp_session::cmd_list_handler()
+void ftp_session::cmd_list_handler(char *_buff)
 {
+    rm_CRLF(_buff);
+    int ignore_hidden_file = 1;
+    int num = strlen(_buff);
+    if (num >= 2 && *_buff == '-' && strstr(_buff, "a"))
+    {
+        ignore_hidden_file = 0;
+    }
     int n = sprintf(m_buff, "%d Here comes the directories list.\r\n", FTP_OPEN_CONN);
     send_ctl(n);
-
-    //todo: add list code here
-    //n = sprintf(m_buff, "%s\r\n", "this ia a ls test");
-    FILE *fp;
-    fp = popen("ls -al", "r");
-    fgets(m_buff, FTP_BUFF_SIZE, fp);
-    while (!feof(fp))
-    {
-        n = strlen(m_buff);
-        if (m_buff[n - 1] == '\n')
-        {
-            m_buff[n - 1] = '\r';
-            m_buff[n] = '\n';
-            m_buff[n + 1] = '\0';
-            ++n;
-        }
+    ls_type ls;
+    ls_generate_ls_type(ls, ".", ignore_hidden_file, m_status.is_anon);
+    while ((n = ls_to_str(ls, m_buff, FTP_BUFF_SIZE + 1)) != -1 && n)
         send_message(n);
-        fgets(m_buff, FTP_BUFF_SIZE, fp);
-    }
-    fclose(fp);
-    //end todo
     close_message_socket();
     n = sprintf(m_buff, "%d Directories send OK\r\n", FTP_CLOSE_DATA_CONN);
     send_ctl(n);
@@ -458,6 +468,12 @@ void ftp_session::cmd_retr_handler(char *_buff)
 }
 void ftp_session::cmd_stor_handler(char *_buff)
 {
+    if (m_conf->conf_read_only || m_status.is_anon && m_conf->conf_anon_read_only)
+    {
+        send_ctl_error(FTP_FILE_UNAVAILABLE, FTP_ERROR_MESSAGE_PERMISSION_DENIED, 0);
+        close_message_socket();
+        return;
+    }
     char buff[256];
     get_message(_buff, buff, 256);
     FILE *fp;
@@ -480,6 +496,11 @@ void ftp_session::cmd_stor_handler(char *_buff)
 }
 void ftp_session::cmd_mkd_handler(char *_buff)
 {
+    if (m_conf->conf_read_only || m_status.is_anon && m_conf->conf_anon_read_only)
+    {
+        send_ctl_error(FTP_FILE_UNAVAILABLE, FTP_ERROR_MESSAGE_PERMISSION_DENIED, 0);
+        return;
+    }
     char buff[PATH_MAX + 1];
     rm_CRLF(_buff);
     if (mkdir(_buff, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH))
@@ -497,6 +518,11 @@ void ftp_session::cmd_mkd_handler(char *_buff)
 }
 void ftp_session::cmd_rmd_handler(char *_buff)
 {
+    if (m_conf->conf_read_only || m_status.is_anon && m_conf->conf_anon_read_only)
+    {
+        send_ctl_error(FTP_FILE_UNAVAILABLE, FTP_ERROR_MESSAGE_PERMISSION_DENIED, 0);
+        return;
+    }
     rm_CRLF(_buff);
     if (rmdir(_buff))
     {
@@ -510,6 +536,11 @@ void ftp_session::cmd_rmd_handler(char *_buff)
 }
 void ftp_session::cmd_dele_handler(char *_buff)
 {
+    if (m_conf->conf_read_only || m_status.is_anon && m_conf->conf_anon_read_only)
+    {
+        send_ctl_error(FTP_FILE_UNAVAILABLE, FTP_ERROR_MESSAGE_PERMISSION_DENIED, 0);
+        return;
+    }
     rm_CRLF(_buff);
     if (unlink(_buff))
     {
@@ -521,6 +552,12 @@ void ftp_session::cmd_dele_handler(char *_buff)
 }
 void ftp_session::cmd_rnfr_handler(char *_buff)
 {
+    if (m_conf->conf_read_only || m_status.is_anon && m_conf->conf_anon_read_only)
+    {
+        send_ctl_error(FTP_FILE_UNAVAILABLE, FTP_ERROR_MESSAGE_PERMISSION_DENIED, 0);
+        m_status.wait_rnto = 0;
+        return;
+    }
     rm_CRLF(_buff);
     if (access(_buff, F_OK))
     {
