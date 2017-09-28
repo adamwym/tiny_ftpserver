@@ -72,8 +72,8 @@ info_type generate_dirs_file(const char *_dir, max_info_type *_max_info, int _is
     }
     info_type info;
     strcpy(info.m_name, _dir);
-    strcpy(info.m_uid, pass ? pass->pw_name : "0");
-    strcpy(info.m_gid, grp ? grp->gr_name : "0");
+    strcpy(info.m_uid, pass ? pass->pw_name : "ftp");
+    strcpy(info.m_gid, grp ? grp->gr_name : "ftp");
     info.m_mode = filestat.st_mode;
     info.m_link = filestat.st_nlink;
     info.m_size = filestat.st_size;
