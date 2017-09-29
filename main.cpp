@@ -13,28 +13,35 @@
 #include "session.h"
 #include "fd_transfer.h"
 #include "parse_conf.h"
+#include "log.h"
 
 using namespace std;
 void sigchild_handler(int i)
 {
     pid_t pid;
     while ((pid = waitpid(-1, nullptr, WNOHANG)) > 0)
-        cout << "one client disconnected with pid " << pid << endl;
+        ftp_log(FTP_LOG_DEBUG, "one client disconnected with pid %d.", pid);
+    //cout << "one client disconnected with pid " << pid << endl;
 }
 
 int main()
 {
+#ifdef RUN_AS_DAEMON
+    daemon(0, 0);
+#endif
     signal(SIGCHLD, sigchild_handler);
     if (getuid() != 0)
     {
-        cout << "error: not running as su" << endl;
-        exit(1);
+        //cout << "error: not running as su" << endl;
+        ftp_log(FTP_LOG_EMERG, "error: not running as su");
+        //exit(1);
     }
     conf_status *conf = (conf_status *) malloc(sizeof(conf_status));
     new(conf) conf_status;
-    if (conf_parse("../tiny_ftpserver.conf") != 1)
+    if (conf_parse("/etc/tiny_ftpserver.conf") != 1)
     {
-        cout << "load conf file failed,using default settings." << endl;
+        //cout << "load conf file failed,using default settings." << endl;
+        ftp_log(FTP_LOG_ERR, "load conf file failed,using default settings.");
         goto set_default_passwd;
     } else
     {
@@ -46,22 +53,26 @@ int main()
         if (conf_has_key("anon_enabled") && (status = conf_get_bool_YES_NO("anon_enabled")) != -1)
         {
             conf->conf_anon_enable = status;
-            cout << "anon enabled " << conf->conf_anon_enable << endl;
+            ftp_log(FTP_LOG_DEBUG, "anon enabled :%d", conf->conf_anon_enable);
+            // cout << "anon enabled " << conf->conf_anon_enable << endl;
         }
         if (conf_has_key("anon_read_only") && (status = conf_get_bool_YES_NO("anon_read_only")) != -1)
         {
             conf->conf_anon_read_only = status;
-            cout << "anon readonly " << conf->conf_anon_read_only << endl;
+            //cout << "anon readonly " << conf->conf_anon_read_only << endl;
+            ftp_log(FTP_LOG_DEBUG, "anon readonly :%d", conf->conf_anon_read_only);
         }
         if (conf_has_key("anon_root") && !access(conf_get_string("anon_root"), F_OK))
         {
             conf->conf_anon_root = conf_get_string("anon_root");
-            cout << "anon root " << conf->conf_anon_root << endl;
+            //cout << "anon root " << conf->conf_anon_root << endl;
+            ftp_log(FTP_LOG_DEBUG, "anon root :%s", conf->conf_anon_root.c_str());
         }
         if (conf_has_key("anon_user"))
         {
             conf->conf_anon_user = conf_get_string("anon_user");
-            cout << conf->conf_anon_user << endl;
+            //cout << conf->conf_anon_user << endl;
+            ftp_log(FTP_LOG_DEBUG, "anon user :%s", conf->conf_anon_user.c_str());
         }
 
 
@@ -70,8 +81,9 @@ int main()
             set_default_passwd:
             if (!(conf->conf_anon_login_as = getpwnam("ftp")))
             {
-                cout << "anon_login_as: user not exists." << endl;
-                exit(1);
+                //cout << "anon_login_as: user not exists." << endl;
+                //exit(1);
+                ftp_log(FTP_LOG_EMERG, "anon_login_as:user ftp not exists");
             }
         }
     }
@@ -100,8 +112,9 @@ int main()
     server_addr.sin_addr.s_addr = INADDR_ANY;
     if (bind(socketfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
     {
-        cout << "error while binding" << endl;
-        exit(1);
+        //cout << "error while binding" << endl;
+        //exit(1);
+        ftp_log(FTP_LOG_EMERG, "error while binding");
     }
     listen(socketfd, 10);
     int sockaccept = -1;
@@ -118,12 +131,14 @@ int main()
         {
             if (errno == EINTR)
                 continue;
-            cout << "select error" << endl;
-            exit(1);
+            //cout << "select error" << endl;
+            //exit(1);
+            ftp_log(FTP_LOG_EMERG, "select error");
         }
         if (FD_ISSET(socketfd, &result))
         {
-            cout << "one client connected" << endl;
+            //cout << "one client connected" << endl;
+            ftp_log(FTP_LOG_DEBUG, "one client connected");
             sockaccept = accept(socketfd, NULL, NULL);
             int forkpid;
             int fd[2];
@@ -174,7 +189,8 @@ int main()
                     //child closed,remove fd
                     close(*i);
                     FD_CLR(*i, &fdset);
-                    cout << "one client deleted" << endl;
+                    //cout << "one client deleted" << endl;
+                    ftp_log(FTP_LOG_DEBUG, "one client deleted");
                     fd_arry.erase(i);
                 }
             } else

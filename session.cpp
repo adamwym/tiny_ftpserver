@@ -19,6 +19,7 @@
 #include <assert.h>
 #include <limits.h>
 #include "ls.h"
+#include "log.h"
 
 void ftp_session::ftp_init()
 {
@@ -265,8 +266,9 @@ void ftp_session::start_handle()
     }
     if (n == -1)
     {
-        std::cerr << "error while recv" << std::endl;
-        exit(1);
+        //std::cerr << "error while recv" << std::endl;
+        //exit(1);
+        ftp_log(FTP_LOG_EMERG, "error while recv");
     }
 }
 void ftp_session::cmd_user_handler(char *_buff)
@@ -278,12 +280,12 @@ void ftp_session::cmd_user_handler(char *_buff)
     }
     char username[256];
     get_message(_buff, username, 256);
-    write(1, username, strlen(username));
+    ftp_log(FTP_LOG_DEBUG, "login in with username:%s", username);
     if (m_conf->conf_anon_enable && !m_conf->conf_anon_user.compare(username))
     {
         m_pass = m_conf->conf_anon_login_as;
         m_status.is_anon = 1;
-        write(1, "anon\n", 5);
+        ftp_log(FTP_LOG_DEBUG, "login in as anon");
     } else
     {
         m_pass = getpwnam(username);
