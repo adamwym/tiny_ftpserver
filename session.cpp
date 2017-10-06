@@ -7,13 +7,10 @@
 #include <stdio.h>
 #include "ftp_def.h"
 #include "fd_transfer.h"
-//#include <malloc.h>
 #include <string.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include <crypt.h>
 #include <shadow.h>
-#include <iostream>
 #include <pwd.h>
 #include <sys/stat.h>
 #include <assert.h>
@@ -266,8 +263,6 @@ void ftp_session::start_handle()
     }
     if (n == -1)
     {
-        //std::cerr << "error while recv" << std::endl;
-        //exit(1);
         ftp_log(FTP_LOG_EMERG, "error while recv");
     }
 }
@@ -300,7 +295,8 @@ void ftp_session::cmd_pass_handler(char *_buff)
     get_message(_buff, passwd, 256);
     struct spwd *sp;
     if (!m_pass ||
-        !m_status.is_anon && (!(sp = getspnam(m_pass->pw_name)) || strcmp(sp->sp_pwdp, crypt(passwd, sp->sp_pwdp))))
+        !m_status.is_anon && (!m_conf->conf_local_enable ||
+                              (!(sp = getspnam(m_pass->pw_name)) || strcmp(sp->sp_pwdp, crypt(passwd, sp->sp_pwdp)))))
     {
         send_ctl_error(FTP_NON_LOGIN_INET, "login failed");
     }
@@ -366,8 +362,6 @@ void ftp_session::cmd_pasv_handler()
         socklen_t len = sizeof(sock);
         getsockname(m_ctl_socket, (struct sockaddr *) &sock, &len);
         m_data_socket = socket(AF_INET, SOCK_STREAM, 0);
-        //sock.sin_family = AF_INET;
-        //sock.sin_addr.s_addr = *(in_addr_t *) netaddrptr;
         sock.sin_port = htons(0);
         bind(m_data_socket, (struct sockaddr *) &sock, sizeof(sock));
         listen(m_data_socket, 10);

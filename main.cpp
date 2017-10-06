@@ -1,11 +1,9 @@
-#include <iostream>
+
 #include <pwd.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
-//#include <netdb.h>
 #include <sys/socket.h>
 #include <net/if.h>
-//#include <sys/ioctl.h>
 #include <cstring>
 #include <libnet.h>
 #include <wait.h>
@@ -21,26 +19,24 @@ void sigchild_handler(int i)
     pid_t pid;
     while ((pid = waitpid(-1, nullptr, WNOHANG)) > 0)
         ftp_log(FTP_LOG_DEBUG, "one client disconnected with pid %d.", pid);
-    //cout << "one client disconnected with pid " << pid << endl;
 }
 
 int main()
 {
+
 #ifdef RUN_AS_DAEMON
     daemon(0, 0);
 #endif
+    ftp_log_init();
     signal(SIGCHLD, sigchild_handler);
     if (getuid() != 0)
     {
-        //cout << "error: not running as su" << endl;
         ftp_log(FTP_LOG_EMERG, "error: not running as su");
-        //exit(1);
     }
     conf_status *conf = (conf_status *) malloc(sizeof(conf_status));
     new(conf) conf_status;
     if (conf_parse("/etc/tiny_ftpserver.conf") != 1)
     {
-        //cout << "load conf file failed,using default settings." << endl;
         ftp_log(FTP_LOG_ERR, "load conf file failed,using default settings.");
         goto set_default_passwd;
     } else
@@ -54,56 +50,42 @@ int main()
         {
             conf->conf_anon_enable = status;
             ftp_log(FTP_LOG_DEBUG, "anon enabled :%d", conf->conf_anon_enable);
-            // cout << "anon enabled " << conf->conf_anon_enable << endl;
         }
         if (conf_has_key("anon_read_only") && (status = conf_get_bool_YES_NO("anon_read_only")) != -1)
         {
             conf->conf_anon_read_only = status;
-            //cout << "anon readonly " << conf->conf_anon_read_only << endl;
             ftp_log(FTP_LOG_DEBUG, "anon readonly :%d", conf->conf_anon_read_only);
         }
         if (conf_has_key("anon_root") && !access(conf_get_string("anon_root"), F_OK))
         {
             conf->conf_anon_root = conf_get_string("anon_root");
-            //cout << "anon root " << conf->conf_anon_root << endl;
             ftp_log(FTP_LOG_DEBUG, "anon root :%s", conf->conf_anon_root.c_str());
         }
         if (conf_has_key("anon_user"))
         {
             conf->conf_anon_user = conf_get_string("anon_user");
-            //cout << conf->conf_anon_user << endl;
             ftp_log(FTP_LOG_DEBUG, "anon user :%s", conf->conf_anon_user.c_str());
         }
-
+        if (conf_has_key("local_enable") && (status = conf_get_bool_YES_NO("local_enable")) != -1)
+        {
+            conf->conf_local_enable = status;
+            ftp_log(FTP_LOG_DEBUG, "local enable :%d", conf->conf_local_enable);
+            if (!conf->conf_anon_enable && !conf->conf_local_enable)
+            {
+                ftp_log(FTP_LOG_WARNING, "Waring :both local and anonymous users are disabled ,which means no one can log in.");
+            }
+        }
 
         if (!conf_has_key("anon_login_as") || !(conf->conf_anon_login_as = getpwnam(conf_get_string("anon_login_as"))))
         {
             set_default_passwd:
             if (!(conf->conf_anon_login_as = getpwnam("ftp")))
             {
-                //cout << "anon_login_as: user not exists." << endl;
-                //exit(1);
                 ftp_log(FTP_LOG_EMERG, "anon_login_as:user ftp not exists");
             }
         }
     }
     conf_free();
-//    struct ifaddrs *ifaddr = nullptr;
-//
-//    char addrbuff[INET_ADDRSTRLEN];
-//    getifaddrs(&ifaddr);
-//    while (ifaddr)
-//    {
-//        if (ifaddr->ifa_addr->sa_family == AF_INET && ifaddr->ifa_name[0] == 'w' | ifaddr->ifa_name[0] == 'e')
-//        {
-//            //if (ifaddr->ifa_addr->sa_family==AF_INET){
-//            netaddrptr = &((struct sockaddr_in *) ifaddr->ifa_addr)->sin_addr;
-//            //inet_ntop(AF_INET, netaddrptr, addrbuff, INET_ADDRSTRLEN);
-//            break;
-//        }
-//        ifaddr = ifaddr->ifa_next;
-//    }
-
     int socketfd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
@@ -112,8 +94,6 @@ int main()
     server_addr.sin_addr.s_addr = INADDR_ANY;
     if (bind(socketfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
     {
-        //cout << "error while binding" << endl;
-        //exit(1);
         ftp_log(FTP_LOG_EMERG, "error while binding");
     }
     listen(socketfd, 10);
@@ -131,13 +111,10 @@ int main()
         {
             if (errno == EINTR)
                 continue;
-            //cout << "select error" << endl;
-            //exit(1);
             ftp_log(FTP_LOG_EMERG, "select error");
         }
         if (FD_ISSET(socketfd, &result))
         {
-            //cout << "one client connected" << endl;
             ftp_log(FTP_LOG_DEBUG, "one client connected");
             sockaccept = accept(socketfd, NULL, NULL);
             int forkpid;
