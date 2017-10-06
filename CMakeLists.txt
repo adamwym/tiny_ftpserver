@@ -3,8 +3,11 @@ project(tiny_ftpserver)
 
 set(CMAKE_CXX_STANDARD 11)
 add_definitions(-std=c++11)
+execute_process(COMMAND pkg-config --cflags glib-2.0 OUTPUT_VARIABLE GLIB_INCLUDE)
+add_definitions(${GLIB_INCLUDE})
+
+
 set(SOURCE_FILES main.cpp session.h session.cpp ftp_def.h fd_transfer.h fd_transfer.cpp parse_conf.h parse_conf.cpp ls.h ls.cpp log.h log.cpp)
-include_directories(/usr/include/glib-2.0/ /usr/lib/glib-2.0/include)
 
 add_executable(tiny_ftpserver ${SOURCE_FILES})
 target_link_libraries(tiny_ftpserver crypt glib-2.0)

@@ -5,14 +5,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <vector>
-#include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
 #include <pwd.h>
 #include <grp.h>
 #include <ctime>
-#include <iostream>
 #include "ls.h"
 #include "log.h"
 

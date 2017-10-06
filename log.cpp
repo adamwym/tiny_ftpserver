@@ -2,7 +2,7 @@
 // Created by adamwang on 17-9-27.
 //
 #include "log.h"
-#include <cstdlib>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <limits.h>
 #include <iostream>
