@@ -14,6 +14,7 @@
 #define FTP_LOG_WARNING LOG_WARNING
 #define FTP_LOG_EMERG LOG_EMERG
 
-void ftp_log(int _log_level ,const char* _str,...);
+void ftp_log_init();
+void ftp_log(int _log_level, const char *_str, ...);
 
 #endif //TINY_FTPSERVER_LOG_H
