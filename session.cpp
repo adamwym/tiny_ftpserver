@@ -15,11 +15,35 @@
 #include <sys/stat.h>
 #include <assert.h>
 #include <limits.h>
+#include <signal.h>
+#include <fcntl.h>
 #include "ls.h"
 #include "log.h"
 
+ftp_session *ftp = NULL;
+static void sigurg_handler(int)
+{
+    assert(ftp);
+    if (ftp->m_status.opened_message_fd == -1)
+    {
+        ftp->send_ctl_error(FTP_ABOR_NO_CONN, "No transfer to abort.", 0);
+        return;
+    }
+    int n = ftp->recv_ctl();
+    if (strstr(ftp->m_buff, "ABOR"))
+    {
+        ftp->m_status.is_urg_abort_recved = 1;
+        ftp_log(FTP_LOG_DEBUG, "Urgent data received.");
+    } else
+    {
+        ftp->send_ctl_error(FTP_NON_EXEC, "Error urgent data.", 0);
+    }
+}
 void ftp_session::ftp_init()
 {
+    ftp = this;
+    signal(SIGURG, sigurg_handler);
+    signal(SIGPIPE, SIG_IGN);
     int n = sprintf(m_buff, "%d (tiny_ftp)\r\n", FTP_READY);
     send_ctl(n);
 }
@@ -142,6 +166,11 @@ int ftp_session::parse_command(char **_cmd, size_t _length)
             int_return = FTP_CMD_SIZE;
             break;
         }
+        if (strstr(*_cmd, "ABOR") == *_cmd)
+        {
+            int_return = FTP_CMD_ABOR;
+            break;
+        }
     } while (0);
     return int_return;
 }
@@ -249,6 +278,9 @@ void ftp_session::start_handle()
                 break;
             case FTP_CMD_SIZE:
                 cmd_size_handler(buff);
+                break;
+            case FTP_CMD_ABOR:
+                cmd_abor_handler();
                 break;
             default:
                 send_ctl_error(FTP_NON_EXEC, "Unsupported command.", 0);
@@ -374,6 +406,10 @@ void ftp_session::cmd_pasv_handler()
     m_status.is_passive = 1;
     send_ctl(num);
     m_status.opened_message_fd = accept(m_data_socket, nullptr, nullptr);
+    if (fcntl(m_status.opened_message_fd, F_SETOWN, getpid()) == -1)
+    {
+        ftp_log(FTP_LOG_EMERG, "set fd owner error,is passive mode: %d", m_status.is_passive);
+    }
 }
 void ftp_session::cmd_list_handler(char *_buff)
 {
@@ -454,6 +490,13 @@ void ftp_session::cmd_retr_handler(char *_buff)
     FILE *fp = fopen(buff, "r");
     while (!feof(fp))
     {
+        if (m_status.is_urg_abort_recved)
+        {
+            m_status.is_urg_abort_recved = 0;
+            n = sprintf(m_buff, "%d Abort successful.\r\n", FTP_CLOSE_DATA_CONN);
+            send_ctl(n);
+            break;
+        }
         n = fread(m_buff, 1, FTP_BUFF_SIZE, fp);
         send_message(n);
     }
@@ -481,9 +524,15 @@ void ftp_session::cmd_stor_handler(char *_buff)
     assert(m_status.opened_message_fd != -1);
     int n = sprintf(m_buff, "%d OK to send data.\r\n", FTP_OPEN_CONN);
     send_ctl(n);
-    while ((n = recv_message()))
+    while (!m_status.is_urg_abort_recved && (n = recv_message()))
     {
         fwrite(m_buff, 1, n, fp);
+    }
+    if (m_status.is_urg_abort_recved)
+    {
+        m_status.is_urg_abort_recved = 0;
+        n = sprintf(m_buff, "%d Abort successful.\r\n", FTP_CLOSE_DATA_CONN);
+        send_ctl(n);
     }
     fclose(fp);
     close_message_socket();
@@ -620,6 +669,10 @@ void ftp_session::cmd_port_handler(char *_buff)
     {
         send_ctl_error(FTP_NON_LOGIN_INET, "PORT command failed.");
     }
+    if (fcntl(m_status.opened_message_fd, F_SETOWN, getpid()) == -1)
+    {
+        ftp_log(FTP_LOG_EMERG, "set fd owner error,is passive mode: %d", m_status.is_passive);
+    }
     int n = sprintf(m_buff, "%d PORT command successful. Consider using PASV.\r\n", FTP_SUCCESS);
     send_ctl(n);
     m_status.is_passive = 0;
@@ -635,4 +688,8 @@ void ftp_session::cmd_size_handler(char *_buff)
     }
     int n = sprintf(m_buff, "%d %ld\r\n", FTP_FILE_STATUS_RESPONSE, filestat.st_size);
     send_ctl(n);
+}
+void ftp_session::cmd_abor_handler()
+{
+    send_ctl_error(FTP_ABOR_NO_CONN, "No transfer to abort.", 0);
 }

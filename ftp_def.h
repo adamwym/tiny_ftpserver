@@ -28,8 +28,13 @@
 #define FTP_SUCCESS 200
 #define FTP_FILEB_PAUSED 350
 #define FTP_FILE_STATUS_RESPONSE 213
+#define FTP_ABOR_NO_CONN 225
 
 #define FTP_ERROR_MESSAGE_PERMISSION_DENIED "Permission denied."
+
+#define IAC 0377
+#define IP 0364
+#define DM 0362
 enum
 {
     FTP_TYPE_ASCII,
@@ -55,7 +60,8 @@ enum
     FTP_CMD_CDUP,
     FTP_CMD_NOOP,
     FTP_CMD_PORT,
-    FTP_CMD_SIZE
+    FTP_CMD_SIZE,
+    FTP_CMD_ABOR
 };
 
 #define CONF_GROUP_NAME "tiny_ftpserver"
