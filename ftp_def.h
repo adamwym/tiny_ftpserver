@@ -35,33 +35,37 @@
 #define IAC 0377
 #define IP 0364
 #define DM 0362
+
+#define FTP_LIST \
+        x(FTP_CMD_USER,USER)\
+        x(FTP_CMD_PASS,PASS)\
+        x(FTP_CMD_SYST,SYST)\
+        x(FTP_CMD_PASV,PASV)\
+        x(FTP_CMD_LIST,LIST)\
+        x(FTP_CMD_QUIT,QUIT)\
+        x(FTP_CMD_PWD,PWD)\
+        x(FTP_CMD_CWD,CWD)\
+        x(FTP_CMD_TYPE,TYPE)\
+        x(FTP_CMD_RETR,RETR)\
+        x(FTP_CMD_STOR,STOR)\
+        x(FTP_CMD_MKD,MKD)\
+        x(FTP_CMD_RMD,RMD)\
+        x(FTP_CMD_DELE,DELE)\
+        x(FTP_CMD_RNFR,RNFR)\
+        x(FTP_CMD_RNTO,RNTO)\
+        x(FTP_CMD_CDUP,CDUP)\
+        x(FTP_CMD_NOOP,NOOP)\
+        x(FTP_CMD_PORT,PORT)\
+        x(FTP_CMD_SIZE,SIZE)\
+        x(FTP_CMD_ABOR,ABOR)
 enum
 {
     FTP_TYPE_ASCII,
     FTP_TYPE_BINARY,
 
-
-    FTP_CMD_USER,
-    FTP_CMD_PASS,
-    FTP_CMD_SYST,
-    FTP_CMD_PASV,
-    FTP_CMD_LIST,
-    FTP_CMD_QUIT,
-    FTP_CMD_PWD,
-    FTP_CMD_CWD,
-    FTP_CMD_TYPE,
-    FTP_CMD_RETR,
-    FTP_CMD_STOR,
-    FTP_CMD_MKD,
-    FTP_CMD_RMD,
-    FTP_CMD_DELE,
-    FTP_CMD_RNFR,
-    FTP_CMD_RNTO,
-    FTP_CMD_CDUP,
-    FTP_CMD_NOOP,
-    FTP_CMD_PORT,
-    FTP_CMD_SIZE,
-    FTP_CMD_ABOR
+#define x(a, b) a,
+    FTP_LIST
+#undef x
 };
 
 #define CONF_GROUP_NAME "tiny_ftpserver"
