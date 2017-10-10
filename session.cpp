@@ -48,6 +48,10 @@ void ftp_session::ftp_init()
     ftp = this;
     signal(SIGURG, sigurg_handler);
     signal(SIGPIPE, SIG_IGN);
+    if (fcntl(m_ctl_socket, F_SETOWN, getpid()) == -1)
+    {
+        ftp_log(FTP_LOG_EMERG, "set fd owner error");
+    }
     int n = sprintf(m_buff, "%d (tiny_ftp)\r\n", FTP_READY);
     send_ctl(n);
 }
@@ -340,7 +344,6 @@ void ftp_session::cmd_pass_handler(char *_buff)
     {
         send_ctl_error(FTP_NON_LOGIN_INET, "login failed");
     }
-
     if (m_status.is_anon && chroot(m_conf->conf_anon_root.c_str()))
         send_ctl_error(FTP_FILE_UNAVAILABLE, "chroot error");
     setgid(m_pass->pw_gid);
@@ -414,10 +417,6 @@ void ftp_session::cmd_pasv_handler()
     m_status.is_passive = 1;
     send_ctl(num);
     m_status.opened_message_fd = accept(m_data_socket, nullptr, nullptr);
-    if (fcntl(m_status.opened_message_fd, F_SETOWN, getpid()) == -1)
-    {
-        ftp_log(FTP_LOG_EMERG, "set fd owner error,is passive mode: %d", m_status.is_passive);
-    }
 }
 void ftp_session::cmd_list_handler(char *_buff)
 {
@@ -691,10 +690,6 @@ void ftp_session::cmd_port_handler(char *_buff)
     if (m_status.opened_message_fd < 0)
     {
         send_ctl_error(FTP_NON_LOGIN_INET, "PORT command failed.");
-    }
-    if (fcntl(m_status.opened_message_fd, F_SETOWN, getpid()) == -1)
-    {
-        ftp_log(FTP_LOG_EMERG, "set fd owner error,is passive mode: %d", m_status.is_passive);
     }
     int n = sprintf(m_buff, "%d PORT command successful. Consider using PASV.\r\n", FTP_SUCCESS);
     send_ctl(n);
