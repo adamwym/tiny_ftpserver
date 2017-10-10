@@ -17,12 +17,14 @@
 #include <limits.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <sys/time.h>
 #include "ls.h"
 #include "log.h"
 
 ftp_session *ftp = NULL;
 static void sigurg_handler(int)
 {
+    ftp_log(FTP_LOG_DEBUG, "urgent");
     assert(ftp);
     if (ftp->m_status.opened_message_fd == -1)
     {
@@ -39,6 +41,8 @@ static void sigurg_handler(int)
         ftp->send_ctl_error(FTP_NON_EXEC, "Error urgent data.", 0);
     }
 }
+
+
 void ftp_session::ftp_init()
 {
     ftp = this;
@@ -192,7 +196,9 @@ int ftp_session::recv_ctl()
 }
 int ftp_session::recv_message()
 {
-    int i = recv(m_status.opened_message_fd, m_buff, FTP_BUFF_SIZE + 1, 0);
+    m_speed_ctl.recv_start();
+    int i = recv(m_status.opened_message_fd, m_buff, FTP_BUFF_SIZE, 0);
+    m_speed_ctl.recv_end(i);
     m_buff[i] = '\0';
     return i;
 }
@@ -312,10 +318,12 @@ void ftp_session::cmd_user_handler(char *_buff)
     {
         m_pass = m_conf->conf_anon_login_as;
         m_status.is_anon = 1;
+        m_speed_ctl.set_speed_limit(m_conf->conf_anon_max_rate);
         ftp_log(FTP_LOG_DEBUG, "login in as anon");
     } else
     {
         m_pass = getpwnam(username);
+        m_speed_ctl.set_speed_limit(m_conf->conf_local_max_rate);
     }
     m_status.specifyed_user = 1;
     int n = sprintf(m_buff, "%d please specify password\r\n", FTP_NEED_PASS);
@@ -432,7 +440,22 @@ void ftp_session::cmd_list_handler(char *_buff)
 }
 int ftp_session::send_message(int _num)
 {
-    return send(m_status.opened_message_fd, m_buff, _num, 0);
+    int num, send_num, remain_num = _num, sended_num = 0;
+    const char *buff = m_buff;
+    while (remain_num)
+    {
+        num = m_speed_ctl.send_start(remain_num);
+        send_num = send(m_status.opened_message_fd, buff, num, 0);
+        if (num == -1)
+            return -1;
+        if (send_num != num)
+            return sended_num + send_num;
+        sended_num += num;
+        remain_num -= num;
+        buff += send_num;
+        m_speed_ctl.send_end();
+    }
+    return sended_num;
 }
 void ftp_session::close_message_socket()
 {
@@ -692,4 +715,79 @@ void ftp_session::cmd_size_handler(char *_buff)
 void ftp_session::cmd_abor_handler()
 {
     send_ctl_error(FTP_ABOR_NO_CONN, "No transfer to abort.", 0);
+}
+int ftp_session::speed_control::send_start(int _num)
+{
+    if (m_speed_limit > 0)
+    {
+        _num = _num > m_speed_limit ? m_speed_limit : _num;
+        if (!m_send_num || _num == m_speed_limit)
+        {
+            gettimeofday(&m_send_start, NULL);
+        }
+        m_send_num += _num;
+    }
+    return _num;
+}
+void ftp_session::speed_control::send_end()
+{
+    if (m_speed_limit > 0)
+    {
+        if (m_send_num >= m_speed_limit)
+        {
+            gettimeofday(&m_send_end, NULL);
+            long diff = (MILLION * m_send_end.tv_sec + m_send_end.tv_usec) -
+                        (MILLION * m_send_start.tv_sec + m_send_start.tv_usec);
+            if (diff < MILLION)
+            {
+                diff = MILLION - diff;
+                do_end(diff);
+            }
+            m_send_num = 0;
+        }
+    }
+}
+void ftp_session::speed_control::recv_start()
+{
+    if (m_speed_limit > 0)
+    {
+        if (!m_recv_num)
+        {
+            gettimeofday(&m_recv_start, NULL);
+        }
+    }
+}
+void ftp_session::speed_control::recv_end(int _num)
+{
+    if (m_speed_limit > 0)
+    {
+        m_recv_num += _num;
+        if (m_recv_num >= m_speed_limit)
+        {
+            gettimeofday(&m_recv_end, NULL);
+            long time_diff = (MILLION * m_recv_end.tv_sec + m_recv_end.tv_usec) -
+                             (MILLION * m_recv_start.tv_sec + m_recv_start.tv_usec);
+            long t = (m_recv_num) / ((double) m_speed_limit / MILLION);
+            long diff = t - time_diff;
+            if (diff > 0)
+                do_end(diff);
+            m_recv_num = 0;
+        }
+    }
+}
+
+void ftp_session::speed_control::do_end(long _diff)
+{
+    timeval tv;
+    tv.tv_sec = _diff / MILLION;
+    tv.tv_usec = _diff % MILLION;
+    int error;
+    do
+    {
+        error = select(0, NULL, NULL, NULL, &tv);
+    } while (error < 0 && errno == EINTR);
+}
+void ftp_session::speed_control::set_speed_limit(int _speed_limit)
+{
+    this->m_speed_limit = _speed_limit;
 }

@@ -75,8 +75,19 @@ int main()
                 ftp_log(FTP_LOG_WARNING, "Waring :both local and anonymous users are disabled ,which means no one can log in.");
             }
         }
+        if (conf_has_key("local_max_rate"))
+        {
+            conf->conf_local_max_rate = conf_get_int("local_max_rate");
+            ftp_log(FTP_LOG_DEBUG, "local_max_rate :%d", conf->conf_local_max_rate);
+        }
+        if (conf_has_key("anon_max_rate"))
+        {
+            conf->conf_anon_max_rate = conf_get_int("anon_max_rate");
+            ftp_log(FTP_LOG_DEBUG, "anon_max_rate :%d", conf->conf_anon_max_rate);
+        }
 
-        if (!conf_has_key("anon_login_as") || !(conf->conf_anon_login_as = getpwnam(conf_get_string("anon_login_as"))))
+        if (!conf_has_key("anon_login_as") ||
+            !(conf->conf_anon_login_as = getpwnam(conf_get_string("anon_login_as")))) {}
         {
             set_default_passwd:
             if (!(conf->conf_anon_login_as = getpwnam("ftp")))

@@ -70,6 +70,8 @@ struct conf_status
     bool conf_read_only = 0;
     bool conf_local_enable = 1;
     bool conf_anon_enable = 0;
+    int conf_local_max_rate = 0;
+    int conf_anon_max_rate = 0;
     std::string conf_anon_user = "anonymous";
     bool conf_anon_read_only = 1;
     std::string conf_anon_root = "/var/ftp";

@@ -35,3 +35,7 @@ char *conf_get_string(const char *_key)
 {
     return g_key_file_get_string(keyfile, CONF_GROUP_NAME, _key, NULL);
 }
+int conf_get_int(const char *_key)
+{
+    return g_key_file_get_integer(keyfile, CONF_GROUP_NAME, _key, NULL);
+}
