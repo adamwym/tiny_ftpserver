@@ -14,7 +14,7 @@ void ftp_log(int _log_level, const char *_str, ...)
     va_start(ag, _str);
 #ifdef RUN_AS_DAEMON
     vsyslog(_log_level, _str, ag);
-    if (_log_level == FTP_LOG_EMERG)
+    if (_log_level == FTP_LOG_ERR)
         exit(1);
 #else
         char buff[LINE_MAX + 1];
@@ -23,7 +23,7 @@ void ftp_log(int _log_level, const char *_str, ...)
             cout << buff << endl;
         else
             cerr << buff << endl;
-        if (_log_level == FTP_LOG_EMERG)
+        if (_log_level == FTP_LOG_ERR)
             exit(1);
 #endif
     va_end(ag);

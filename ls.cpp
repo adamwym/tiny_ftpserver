@@ -58,15 +58,15 @@ info_type generate_dirs_file(const char *_dir, max_info_type *_max_info, int _is
     struct group *grp = nullptr;
     if (lstat(_dir, &filestat))
     {
-        ftp_log(FTP_LOG_EMERG, "error lstat %s:%m.", _dir);
+        ftp_log(FTP_LOG_ERR, "error lstat %s:%m.", _dir);
     }
     if (!_is_anon && !(pass = getpwuid(filestat.st_uid)))
     {
-        ftp_log(FTP_LOG_EMERG, "error getpw %s:%m.", _dir);
+        ftp_log(FTP_LOG_ERR, "error getpw %s:%m.", _dir);
     }
     if (!_is_anon && !(grp = getgrgid(filestat.st_gid)))
     {
-        ftp_log(FTP_LOG_EMERG, "error getgr %s:%m.", _dir);
+        ftp_log(FTP_LOG_ERR, "error getgr %s:%m.", _dir);
     }
     info_type info;
     strcpy(info.m_name, _dir);
@@ -105,7 +105,7 @@ int generate_dirs(ls_type &_ls_type, const char *_path, int _ignore_hidden_file,
     max_info_type max;
     if (!(dp = opendir(_path)))
     {
-        ftp_log(FTP_LOG_ERR, "open %s failed", _path);
+        ftp_log(FTP_LOG_WARNING, "open %s failed", _path);
         return -1;
     }
     while ((dir = readdir(dp)))
@@ -138,7 +138,7 @@ int ls_to_str(struct ls_type &_ls_type, char *_buff, const int _max_size)
         size += sprintf(_buff, format_str, mod, item.m_link, item.m_uid, item.m_gid, item.m_size, time, item.m_name);
         if (size >= _max_size)
         {
-            ftp_log(LOG_WARNING, "ls buffer overflow.");
+            ftp_log(FTP_LOG_WARNING, "ls buffer overflow.");
             return -1;
         }
         _buff += size;
@@ -149,7 +149,7 @@ int ls_to_str(struct ls_type &_ls_type, char *_buff, const int _max_size)
             size += sprintf(_buff, " -> %s", link_name);
             if (size + 2 >= _max_size)
             {
-                ftp_log(LOG_WARNING, "ls buffer overflow.");
+                ftp_log(FTP_LOG_WARNING, "ls buffer overflow.");
                 return -1;
             }
             _buff += size;

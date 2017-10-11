@@ -36,29 +36,8 @@ public:
     void close_message_socket();
 
 private:
-//    void cmd_user_handler(char *_buff);
-//    void cmd_pass_handler(char *_buff);
-//    void cmd_syst_handler();
-//    void cmd_quit_handler();
-//    void cmd_pwd_handler();
-//    void cmd_cwd_handler(char *_buff);
-//    void cmd_pasv_handler();
-//    void cmd_list_handler(char *_buff);
-//    void cmd_type_handler(char *_buff);
-//    void cmd_retr_handler(char *_buff);
-//    void cmd_stor_handler(char *_buff);
-//    void cmd_mkd_handler(char *_buff);
-//    void cmd_rmd_handler(char *_buff);
-//    void cmd_dele_handler(char *_buff);
-//    void cmd_rnfr_handler(char *_buff);
-//    void cmd_rnto_handler(char *_buff);
-//    void cmd_cdup_handler();
-//    void cmd_noop_handler();
-//    void cmd_port_handler(char *_buff);
-//    void cmd_size_handler(char *_buff);
-//    void cmd_abor_handler();
-#define x(a,b) void cmd_##b##_handler(char *_buff);
-FTP_LIST
+#define x(a, b) void cmd_##b##_handler(char *_buff);
+    FTP_LIST
 #undef x
     void send_ctl_error(int _err_code, const char *_err_message, int _close = 1);
 

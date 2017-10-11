@@ -49,7 +49,7 @@ void ftp_session::ftp_init()
     signal(SIGPIPE, SIG_IGN);
     if (fcntl(m_ctl_socket, F_SETOWN, getpid()) == -1)
     {
-        ftp_log(FTP_LOG_EMERG, "set fd owner error");
+        ftp_log(FTP_LOG_ERR, "set fd owner error");
     }
     int n = sprintf(m_buff, "%d (tiny_ftp)\r\n", FTP_READY);
     send_ctl(n);
@@ -111,7 +111,7 @@ void ftp_session::start_handle()
     }
     if (n == -1)
     {
-        ftp_log(FTP_LOG_EMERG, "error while recv");
+        ftp_log(FTP_LOG_ERR, "error while recv");
     }
 }
 void ftp_session::cmd_USER_handler(char *_buff)

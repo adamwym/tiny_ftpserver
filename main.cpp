@@ -31,13 +31,13 @@ int main()
     signal(SIGCHLD, sigchild_handler);
     if (getuid() != 0)
     {
-        ftp_log(FTP_LOG_EMERG, "error: not running as su");
+        ftp_log(FTP_LOG_ERR, "error: not running as su");
     }
     conf_status *conf = (conf_status *) malloc(sizeof(conf_status));
     new(conf) conf_status;
     if (conf_parse("/etc/tiny_ftpserver.conf") != 1)
     {
-        ftp_log(FTP_LOG_ERR, "load conf file failed,using default settings.");
+        ftp_log(FTP_LOG_WARNING, "load conf file failed,using default settings.");
         goto set_default_passwd;
     } else
     {
@@ -87,12 +87,12 @@ int main()
         }
 
         if (!conf_has_key("anon_login_as") ||
-            !(conf->conf_anon_login_as = getpwnam(conf_get_string("anon_login_as")))) {}
+            !(conf->conf_anon_login_as = getpwnam(conf_get_string("anon_login_as"))))
         {
             set_default_passwd:
             if (!(conf->conf_anon_login_as = getpwnam("ftp")))
             {
-                ftp_log(FTP_LOG_EMERG, "anon_login_as:user ftp not exists");
+                ftp_log(FTP_LOG_ERR, "anon_login_as:user ftp not exists");
             }
         }
     }
@@ -105,7 +105,7 @@ int main()
     server_addr.sin_addr.s_addr = INADDR_ANY;
     if (bind(socketfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
     {
-        ftp_log(FTP_LOG_EMERG, "error while binding");
+        ftp_log(FTP_LOG_ERR, "error while binding");
     }
     listen(socketfd, 10);
     int sockaccept = -1;
@@ -122,7 +122,7 @@ int main()
         {
             if (errno == EINTR)
                 continue;
-            ftp_log(FTP_LOG_EMERG, "select error");
+            ftp_log(FTP_LOG_ERR, "select error");
         }
         if (FD_ISSET(socketfd, &result))
         {
