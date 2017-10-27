@@ -14,6 +14,7 @@
 #include "log.h"
 
 using namespace std;
+conf_status *conf = NULL;
 void sigchild_handler(int i)
 {
     pid_t pid;
@@ -21,19 +22,14 @@ void sigchild_handler(int i)
         ftp_log(FTP_LOG_DEBUG, "one client disconnected with pid %d.", pid);
 }
 
-int main()
+void read_conf()
 {
-
-#ifdef RUN_AS_DAEMON
-    daemon(0, 0);
-#endif
-    ftp_log_init();
-    signal(SIGCHLD, sigchild_handler);
-    if (getuid() != 0)
+    if (conf)
     {
-        ftp_log(FTP_LOG_ERR, "error: not running as su");
+        conf->~conf_status();
+        free(conf);
     }
-    conf_status *conf = (conf_status *) malloc(sizeof(conf_status));
+    conf = (conf_status *) malloc(sizeof(conf_status));
     new(conf) conf_status;
     if (conf_parse("/etc/tiny_ftpserver.conf") != 1)
     {
@@ -97,6 +93,26 @@ int main()
         }
     }
     conf_free();
+}
+void sighup_handler(int i)
+{
+    ftp_log(FTP_LOG_DEBUG, "get sighup,reload conf file.");
+    read_conf();
+}
+int main()
+{
+
+#ifdef RUN_AS_DAEMON
+    daemon(0, 0);
+#endif
+    ftp_log_init();
+    signal(SIGCHLD, sigchild_handler);
+    signal(SIGHUP, sighup_handler);
+    if (getuid() != 0)
+    {
+        ftp_log(FTP_LOG_ERR, "error: not running as su");
+    }
+    read_conf();
     int socketfd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
