@@ -15,6 +15,8 @@
 
 using namespace std;
 conf_status *conf = NULL;
+static int argc = 1;
+static char **argv = NULL;
 void sigchild_handler(int i)
 {
     pid_t pid;
@@ -31,12 +33,18 @@ void read_conf()
     }
     conf = (conf_status *) malloc(sizeof(conf_status));
     new(conf) conf_status;
-    if (conf_parse("/etc/tiny_ftpserver.conf") != 1)
+    const char *conf_file = NULL;
+    if (argv && argc == 2)
+        conf_file = argv[1];
+    else
+        conf_file = "/etc/tiny_ftpserver.conf";
+    if (conf_parse(conf_file) != 1)
     {
         ftp_log(FTP_LOG_WARNING, "load conf file failed,using default settings.");
         goto set_default_passwd;
     } else
     {
+        ftp_log(FTP_LOG_DEBUG, "loaded %s", conf_file);
         int status;
         if (conf_has_key("read_only") && (status = conf_get_bool_YES_NO("read_only")) != -1)
         {
@@ -99,13 +107,15 @@ void sighup_handler(int i)
     ftp_log(FTP_LOG_DEBUG, "get sighup,reload conf file.");
     read_conf();
 }
-int main()
+int main(int _argc, char **_argv)
 {
 
 #ifdef RUN_AS_DAEMON
     daemon(0, 0);
 #endif
     ftp_log_init();
+    argc = _argc;
+    argv = _argv;
     signal(SIGCHLD, sigchild_handler);
     signal(SIGHUP, sighup_handler);
     if (getuid() != 0)
