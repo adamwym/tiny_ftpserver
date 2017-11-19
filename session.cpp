@@ -20,6 +20,7 @@
 #include <sys/time.h>
 #include "ls.h"
 #include "log.h"
+#include "utility.h"
 
 ftp_session *ftp = NULL;
 static void sigurg_handler(int)
@@ -32,6 +33,10 @@ static void sigurg_handler(int)
         return;
     }
     int n = ftp->recv_ctl();
+    if (n == -1)
+    {
+        ftp_log(FTP_LOG_ERR, "error recv while handling SIGURG %s.", errno == EAGAIN ? ":timeout" : "");
+    }
     if (strstr(ftp->m_buff, "ABOR"))
     {
         ftp->m_status.is_urg_abort_recved = 1;
@@ -51,8 +56,28 @@ void ftp_session::ftp_init()
     {
         ftp_log(FTP_LOG_ERR, "set fd owner error");
     }
+    struct timeval timeout;
+    memset(&timeout, 0, sizeof(struct timeval));
+    timeout.tv_sec = m_conf->conf_idle_session_timeout;
+    set_recv_timeout(m_ctl_socket, &timeout);
+    timeout.tv_sec = m_conf->conf_transmission_timeout;
+    set_send_timeout(m_ctl_socket, &timeout);
     int n = sprintf(m_buff, "%d (tiny_ftp)\r\n", FTP_READY);
     send_ctl(n);
+}
+void ftp_session::send_ctl_error(int _err_code, const char *_err_message, int _close/*=1*/ )
+{
+    int n = sprintf(m_buff, "%d %s\r\n", _err_code, _err_message);
+    send_ctl(n);
+    if (m_status.opened_message_fd != -1)
+    {
+        close_message_socket();
+    }
+    if (_close)
+    {
+        close_ctl_socket();
+        exit(1);
+    }
 }
 void ftp_session::close_ctl_socket()
 {
@@ -62,7 +87,12 @@ void ftp_session::close_ctl_socket()
 }
 int ftp_session::send_ctl(int _num)
 {
-    return send(m_ctl_socket, m_buff, _num, 0);
+    int i = send(m_ctl_socket, m_buff, _num, 0);
+    if (i == -1)
+    {
+        ftp_log(FTP_LOG_ERR, "error send_ctl %s", errno == EAGAIN ? ":timeout" : "");
+    }
+    return i;
 }
 int ftp_session::recv_ctl()
 {
@@ -74,9 +104,41 @@ int ftp_session::recv_message()
 {
     m_speed_ctl.recv_start();
     int i = recv(m_status.opened_message_fd, m_buff, FTP_BUFF_SIZE, 0);
+    if (i == -1)
+    {
+        ftp_log(FTP_LOG_WARNING, "error while recv_message %s.", errno == EAGAIN ? ":timeout" : "");
+    }
     m_speed_ctl.recv_end(i);
     m_buff[i] = '\0';
     return i;
+}
+int ftp_session::send_message(int _num)
+{
+    int num, send_num, remain_num = _num, sended_num = 0;
+    const char *buff = m_buff;
+    while (remain_num)
+    {
+        num = m_speed_ctl.send_start(remain_num);
+        send_num = send(m_status.opened_message_fd, buff, num, 0);
+        if (send_num == -1)
+        {
+            ftp_log(FTP_LOG_WARNING, "error while send_message %s.", errno == EAGAIN ? ":timeout" : "");
+            return -1;
+        }
+        if (send_num != num)
+            return sended_num + send_num;
+        sended_num += num;
+        remain_num -= num;
+        buff += send_num;
+        m_speed_ctl.send_end();
+    }
+    return sended_num;
+}
+void ftp_session::close_message_socket()
+{
+    shutdown(m_status.opened_message_fd, SHUT_RDWR);
+    close(m_status.opened_message_fd);
+    m_status.opened_message_fd = -1;
 }
 int ftp_session::get_message(char *_src, char *_dst, size_t _max_num)
 {
@@ -111,7 +173,7 @@ void ftp_session::start_handle()
     }
     if (n == -1)
     {
-        ftp_log(FTP_LOG_ERR, "error while recv");
+        ftp_log(FTP_LOG_ERR, "error while recv %s.", errno == EAGAIN ? ":timeout" : "");
     }
 }
 void ftp_session::cmd_USER_handler(char *_buff)
@@ -163,20 +225,7 @@ void ftp_session::cmd_SYST_handler(char *_buff)
 {
     send_ctl(sprintf(m_buff, "%d UNIX Type: L8\r\n", FTP_SYS_TYPE));
 }
-void ftp_session::send_ctl_error(int _err_code, const char *_err_message, int _close/*=1*/ )
-{
-    int n = sprintf(m_buff, "%d %s\r\n", _err_code, _err_message);
-    send_ctl(n);
-    if (m_status.opened_message_fd != -1)
-    {
-        close_message_socket();
-    }
-    if (_close)
-    {
-        close_ctl_socket();
-        exit(1);
-    }
-}
+
 void ftp_session::cmd_QUIT_handler(char *_buff)
 {
     int n = sprintf(m_buff, "%d goodbye\r\n", FTP_QUIT_INET);
@@ -205,11 +254,13 @@ void ftp_session::cmd_PASV_handler(char *_buff)
 {
     struct sockaddr_in sock;
     memset(&sock, 0, sizeof(sock));
+    struct timeval timeout{m_conf->conf_transmission_timeout, 0};
     if (m_data_socket == -1)
     {
         socklen_t len = sizeof(sock);
         getsockname(m_ctl_socket, (struct sockaddr *) &sock, &len);
         m_data_socket = socket(AF_INET, SOCK_STREAM, 0);
+        set_recv_timeout(m_data_socket, &timeout);
         sock.sin_port = htons(0);
         bind(m_data_socket, (struct sockaddr *) &sock, sizeof(sock));
         listen(m_data_socket, 10);
@@ -219,12 +270,25 @@ void ftp_session::cmd_PASV_handler(char *_buff)
     u_char *port = (u_char *) &sock.sin_port;
     u_char *addr = (u_char *) &sock.sin_addr.s_addr;
     int num = sprintf(m_buff, "%d Entering passive mode (%d,%d,%d,%d,%d,%d)\r\n", FTP_PASSIVE_MODE, addr[0], addr[1], addr[2], addr[3], port[0], port[1]);
-    m_status.is_passive = 1;
     send_ctl(num);
     m_status.opened_message_fd = accept(m_data_socket, nullptr, nullptr);
+    if (m_status.opened_message_fd == -1)
+    {
+        num = sprintf(m_buff, "%d Entering passive mode failed.\r\n", FTP_NON_LOGIN_INET);
+        send_ctl(num);
+        return;
+    }
+    set_send_timeout(m_status.opened_message_fd, &timeout);
+    set_recv_timeout(m_status.opened_message_fd, &timeout);
+    m_status.is_passive = 1;
 }
 void ftp_session::cmd_LIST_handler(char *_buff)
 {
+    if (m_status.opened_message_fd == -1)
+    {
+        send_ctl_error(FTP_CAN_NOT_OPEN_CONNECTION, "Error: no message connection opened.", 0);
+        return;
+    }
     rm_CRLF(_buff);
     int ignore_hidden_file = 1;
     int num = strlen(_buff);
@@ -237,36 +301,13 @@ void ftp_session::cmd_LIST_handler(char *_buff)
     ls_type ls;
     ls_generate_ls_type(ls, ".", ignore_hidden_file, m_status.is_anon);
     while ((n = ls_to_str(ls, m_buff, FTP_BUFF_SIZE + 1)) != -1 && n)
-        send_message(n);
+        if (send_message(n) == -1)
+            break;
     close_message_socket();
     n = sprintf(m_buff, "%d Directories send OK\r\n", FTP_CLOSE_DATA_CONN);
     send_ctl(n);
 }
-int ftp_session::send_message(int _num)
-{
-    int num, send_num, remain_num = _num, sended_num = 0;
-    const char *buff = m_buff;
-    while (remain_num)
-    {
-        num = m_speed_ctl.send_start(remain_num);
-        send_num = send(m_status.opened_message_fd, buff, num, 0);
-        if (num == -1)
-            return -1;
-        if (send_num != num)
-            return sended_num + send_num;
-        sended_num += num;
-        remain_num -= num;
-        buff += send_num;
-        m_speed_ctl.send_end();
-    }
-    return sended_num;
-}
-void ftp_session::close_message_socket()
-{
-    shutdown(m_status.opened_message_fd, SHUT_RDWR);
-    close(m_status.opened_message_fd);
-    m_status.opened_message_fd = -1;
-}
+
 void ftp_session::cmd_TYPE_handler(char *_buff)
 {
     char buff[5];
@@ -291,6 +332,11 @@ void ftp_session::cmd_TYPE_handler(char *_buff)
 }
 void ftp_session::cmd_RETR_handler(char *_buff)
 {
+    if (m_status.opened_message_fd == -1)
+    {
+        send_ctl_error(FTP_CAN_NOT_OPEN_CONNECTION, "Error: no message connection opened.", 0);
+        return;
+    }
     char buff[256];
     const char *type;
     get_message(_buff, buff, 256);
@@ -300,7 +346,6 @@ void ftp_session::cmd_RETR_handler(char *_buff)
         send_ctl_error(FTP_FILE_UNAVAILABLE, "Failed to open file.", 0);
         return;
     }
-    assert(m_status.opened_message_fd != -1);
     if (m_status.type_mode == FTP_TYPE_BINARY)
     {
         type = "BINARY";
@@ -325,7 +370,8 @@ void ftp_session::cmd_RETR_handler(char *_buff)
             break;
         }
         n = fread(m_buff, 1, FTP_BUFF_SIZE, fp);
-        send_message(n);
+        if (send_message(n) == -1)
+            break;
     }
     fclose(fp);
     close_message_socket();
@@ -334,6 +380,11 @@ void ftp_session::cmd_RETR_handler(char *_buff)
 }
 void ftp_session::cmd_STOR_handler(char *_buff)
 {
+    if (m_status.opened_message_fd == -1)
+    {
+        send_ctl_error(FTP_CAN_NOT_OPEN_CONNECTION, "Error: no message connection opened.", 0);
+        return;
+    }
     if (m_conf->conf_read_only || m_status.is_anon && m_conf->conf_anon_read_only)
     {
         send_ctl_error(FTP_FILE_UNAVAILABLE, FTP_ERROR_MESSAGE_PERMISSION_DENIED, 0);
@@ -348,10 +399,9 @@ void ftp_session::cmd_STOR_handler(char *_buff)
         send_ctl_error(FTP_FILE_UNAVAILABLE, "Failed to create file.", 0);
         return;
     }
-    assert(m_status.opened_message_fd != -1);
     int n = sprintf(m_buff, "%d OK to send data.\r\n", FTP_OPEN_CONN);
     send_ctl(n);
-    while (!m_status.is_urg_abort_recved && (n = recv_message()))
+    while (!m_status.is_urg_abort_recved && (n = recv_message()) > 0)
     {
         fwrite(m_buff, 1, n, fp);
     }
@@ -494,8 +544,12 @@ void ftp_session::cmd_PORT_handler(char *_buff)
     m_status.opened_message_fd = recv_fd(m_fd_transfer_fd);
     if (m_status.opened_message_fd < 0)
     {
-        send_ctl_error(FTP_NON_LOGIN_INET, "PORT command failed.");
+        send_ctl_error(FTP_NON_LOGIN_INET, "PORT command failed.", 0);
+        return;
     }
+    struct timeval timeout{m_conf->conf_transmission_timeout, 0};
+    set_send_timeout(m_status.opened_message_fd, &timeout);
+    set_recv_timeout(m_status.opened_message_fd, &timeout);
     int n = sprintf(m_buff, "%d PORT command successful. Consider using PASV.\r\n", FTP_SUCCESS);
     send_ctl(n);
     m_status.is_passive = 0;

@@ -12,6 +12,7 @@
 #include "fd_transfer.h"
 #include "parse_conf.h"
 #include "log.h"
+#include "utility.h"
 
 using namespace std;
 conf_status *conf = NULL;
@@ -89,6 +90,16 @@ void read_conf()
             conf->conf_anon_max_rate = conf_get_int("anon_max_rate");
             ftp_log(FTP_LOG_DEBUG, "anon_max_rate :%d", conf->conf_anon_max_rate);
         }
+        if (conf_has_key("idle_session_timeout"))
+        {
+            conf->conf_idle_session_timeout = conf_get_int("idle_session_timeout");
+            ftp_log(FTP_LOG_DEBUG, "idle_session_timeout :%d", conf->conf_idle_session_timeout);
+        }
+        if (conf_has_key("transmission_timeout"))
+        {
+            conf->conf_transmission_timeout = conf_get_int("transmission_timeout");
+            ftp_log(FTP_LOG_DEBUG, "transmission_timeout :%d", conf->conf_transmission_timeout);
+        }
 
         if (!conf_has_key("anon_login_as") ||
             !(conf->conf_anon_login_as = getpwnam(conf_get_string("anon_login_as"))))
@@ -152,8 +163,8 @@ int main(int _argc, char **_argv)
         }
         if (FD_ISSET(socketfd, &result))
         {
-            ftp_log(FTP_LOG_DEBUG, "one client connected");
             sockaccept = accept(socketfd, NULL, NULL);
+            ftp_log(FTP_LOG_DEBUG, "one client connected");
             int forkpid;
             int fd[2];
             socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
@@ -194,8 +205,14 @@ int main(int _argc, char **_argv)
                     int flag = 1;
                     setsockopt(sock_to_send, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int));
                     bind(sock_to_send, (struct sockaddr *) &socklocal, sizeof(socklocal));
-                    connect(sock_to_send, (struct sockaddr *) &sockaddr, sizeof(struct sockaddr_in));
-                    send_fd(*i, sock_to_send);
+                    struct timeval timeout{conf->conf_transmission_timeout, 0};
+                    set_send_timeout(sock_to_send, &timeout);//set connect timeout to avoid blocking the main process
+                    if (connect(sock_to_send, (struct sockaddr *) &sockaddr, sizeof(struct sockaddr_in)) == -1)
+                    {
+                        ftp_log(FTP_LOG_WARNING, "error while connecting with PORT mode.");
+                        send_fd(*i, -1);
+                    } else
+                        send_fd(*i, sock_to_send);
                     close(sock_to_send);
                     ++i;
                 } else
@@ -203,7 +220,6 @@ int main(int _argc, char **_argv)
                     //child closed,remove fd
                     close(*i);
                     FD_CLR(*i, &fdset);
-                    //cout << "one client deleted" << endl;
                     ftp_log(FTP_LOG_DEBUG, "one client deleted");
                     fd_arry.erase(i);
                 }

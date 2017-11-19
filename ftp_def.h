@@ -29,6 +29,7 @@
 #define FTP_FILEB_PAUSED 350
 #define FTP_FILE_STATUS_RESPONSE 213
 #define FTP_ABOR_NO_CONN 225
+#define FTP_CAN_NOT_OPEN_CONNECTION 425
 
 #define FTP_ERROR_MESSAGE_PERMISSION_DENIED "Permission denied."
 
@@ -76,6 +77,8 @@ struct conf_status
     bool conf_anon_enable = 0;
     int conf_local_max_rate = 0;
     int conf_anon_max_rate = 0;
+    unsigned int conf_idle_session_timeout = 300;
+    unsigned int conf_transmission_timeout = 10;
     std::string conf_anon_user = "anonymous";
     bool conf_anon_read_only = 1;
     std::string conf_anon_root = "/var/ftp";

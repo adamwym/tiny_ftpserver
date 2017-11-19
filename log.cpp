@@ -6,10 +6,15 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <iostream>
+#include <signal.h>
 
 using namespace std;
 void ftp_log(int _log_level, const char *_str, ...)
 {
+    sigset_t new_mask, old_mask;
+    sigemptyset(&new_mask);
+    sigaddset(&new_mask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &new_mask, &old_mask);
     va_list ag;
     va_start(ag, _str);
 #ifdef RUN_AS_DAEMON
@@ -27,6 +32,7 @@ void ftp_log(int _log_level, const char *_str, ...)
             exit(1);
 #endif
     va_end(ag);
+    sigprocmask(SIG_SETMASK, &old_mask, NULL);
 }
 void ftp_log_init()
 {
