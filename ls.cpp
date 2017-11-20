@@ -136,7 +136,7 @@ int ls_to_str(struct ls_type &_ls_type, char *_buff, const int _max_size)
         char format_str[256];
         sprintf(format_str, "%%s %%%dd %%-%ds %%-%ds %%%dd %%s %%s", _ls_type.max_info.max_link, _ls_type.max_info.max_uid, _ls_type.max_info.max_gid, _ls_type.max_info.max_size);
         size += sprintf(_buff, format_str, mod, item.m_link, item.m_uid, item.m_gid, item.m_size, time, item.m_name);
-        if (size >= _max_size)
+        if (size + 2 >= _max_size)
         {
             ftp_log(FTP_LOG_WARNING, "ls buffer overflow.");
             return -1;
@@ -146,13 +146,14 @@ int ls_to_str(struct ls_type &_ls_type, char *_buff, const int _max_size)
         {
             char link_name[256];
             link_name[readlink(item.m_name, link_name, 256)] = '\0';
-            size += sprintf(_buff, " -> %s", link_name);
+            int added_size = sprintf(_buff, " -> %s", link_name);
+            size += added_size;
             if (size + 2 >= _max_size)
             {
                 ftp_log(FTP_LOG_WARNING, "ls buffer overflow.");
                 return -1;
             }
-            _buff += size;
+            _buff += added_size;
         }
         *_buff = '\r';
         *(_buff + 1) = '\n';
