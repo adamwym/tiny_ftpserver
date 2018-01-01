@@ -8,6 +8,8 @@
 #include "ftp_def.h"
 #include <stddef.h>
 #include <limits.h>
+#include <openssl/ssl.h>
+
 
 //forward declaration
 struct passwd;
@@ -52,6 +54,10 @@ private:
         int wait_rnto = 0;
         char rn_buff[NAME_MAX + 1];
         int is_urg_abort_recved = 0;
+        int is_auth_mode = 0;
+        char prot_value = 'C';
+        SSL *ctl_socket_ssl = NULL;
+        SSL *data_socket_ssl = NULL;
     };
     class speed_control
     {

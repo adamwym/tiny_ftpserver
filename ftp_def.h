@@ -6,6 +6,7 @@
 #define TINY_FTPSERVER_FTP_DEF_H
 
 #include <string>
+#include <openssl/ssl.h>
 
 #define FTP_BUFF_SIZE 4096
 
@@ -24,12 +25,20 @@
 #define FTP_NAME_UNAVAILABLE 553
 #define FTP_NON_EXEC 502
 #define FTP_SEQ_ERROR 503
+#define FTP_ARG_NOT_IMPLEMENT 504
 #define FTP_PASSIVE_MODE 227
 #define FTP_SUCCESS 200
 #define FTP_FILEB_PAUSED 350
 #define FTP_FILE_STATUS_RESPONSE 213
 #define FTP_ABOR_NO_CONN 225
 #define FTP_CAN_NOT_OPEN_CONNECTION 425
+
+
+//ssl FTP replies
+#define FTP_DENIED_FOR_POLICY_REASONS 534
+#define FTP_SECURITY_DATA_EXCHANGED 234
+
+//end ssl FTP replies
 
 #define FTP_ERROR_MESSAGE_PERMISSION_DENIED "Permission denied."
 
@@ -58,7 +67,10 @@
         x(FTP_CMD_NOOP,NOOP)\
         x(FTP_CMD_PORT,PORT)\
         x(FTP_CMD_SIZE,SIZE)\
-        x(FTP_CMD_ABOR,ABOR)
+        x(FTP_CMD_ABOR,ABOR)\
+        x(FTP_CMD_AUTH,AUTH)\
+        x(FTP_CMD_PBSZ,PBSZ)\
+        x(FTP_CMD_PROT,PROT)
 enum
 {
     FTP_TYPE_ASCII,
@@ -70,6 +82,21 @@ enum
 };
 
 #define CONF_GROUP_NAME "tiny_ftpserver"
+#define CONF_READONLY "read_only"
+#define CONF_ANON_ENABLED "anon_enabled"
+#define CONF_ANON_READONLY "anon_read_only"
+#define CONF_ANON_ROOT "anon_root"
+#define CONF_ANON_USER "anon_user"
+#define CONF_LOCAL_ENABLE "local_enable"
+#define CONF_LOCAL_MAX_RATE "local_max_rate"
+#define CONF_ANON_MAX_RATE "anon_max_rate"
+#define CONF_IDLE_SESSION_TIMEOUT "idle_session_timeout"
+#define CONF_TRANSMISSION_TIMEOUT "transmission_timeout"
+#define CONF_SSL_TLSV1_ENABLE "ssl_tlsv1_enable"
+#define CONF_ANON_LOGIN_AS "anon_login_as"
+#define CONF_RSA_CERT_FILE "rsa_cert_file"
+#define CONF_RSA_PRIVATE_KEY_FILE "rsa_private_key_file"
+
 struct conf_status
 {
     bool conf_read_only = 0;
@@ -83,5 +110,6 @@ struct conf_status
     bool conf_anon_read_only = 1;
     std::string conf_anon_root = "/var/ftp";
     struct passwd *conf_anon_login_as = NULL;
+    SSL_CTX *conf_ctx = NULL;
 };
 #endif //TINY_FTPSERVER_FTP_DEF_H

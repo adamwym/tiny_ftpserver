@@ -8,6 +8,7 @@
 #include <libnet.h>
 #include <wait.h>
 #include <vector>
+#include <openssl/ssl.h>
 #include "session.h"
 #include "fd_transfer.h"
 #include "parse_conf.h"
@@ -16,6 +17,7 @@
 
 using namespace std;
 conf_status *conf = NULL;
+SSL_CTX *ctx = NULL;
 static int argc = 1;
 static char **argv = NULL;
 void sigchild_handler(int i)
@@ -32,6 +34,11 @@ void read_conf()
         conf->~conf_status();
         free(conf);
     }
+    if (ctx)
+    {
+        SSL_CTX_free(ctx);
+    }
+    ctx = SSL_CTX_new(TLS_server_method());
     conf = (conf_status *) malloc(sizeof(conf_status));
     new(conf) conf_status;
     const char *conf_file = NULL;
@@ -47,31 +54,31 @@ void read_conf()
     {
         ftp_log(FTP_LOG_DEBUG, "loaded %s", conf_file);
         int status;
-        if (conf_has_key("read_only") && (status = conf_get_bool_YES_NO("read_only")) != -1)
+        if (conf_has_key(CONF_READONLY) && (status = conf_get_bool_YES_NO(CONF_READONLY)) != -1)
         {
             conf->conf_read_only = status;
         }
-        if (conf_has_key("anon_enabled") && (status = conf_get_bool_YES_NO("anon_enabled")) != -1)
+        if (conf_has_key(CONF_ANON_ENABLED) && (status = conf_get_bool_YES_NO(CONF_ANON_ENABLED)) != -1)
         {
             conf->conf_anon_enable = status;
             ftp_log(FTP_LOG_DEBUG, "anon enabled :%d", conf->conf_anon_enable);
         }
-        if (conf_has_key("anon_read_only") && (status = conf_get_bool_YES_NO("anon_read_only")) != -1)
+        if (conf_has_key(CONF_ANON_READONLY) && (status = conf_get_bool_YES_NO(CONF_ANON_READONLY)) != -1)
         {
             conf->conf_anon_read_only = status;
             ftp_log(FTP_LOG_DEBUG, "anon readonly :%d", conf->conf_anon_read_only);
         }
-        if (conf_has_key("anon_root") && !access(conf_get_string("anon_root"), F_OK))
+        if (conf_has_key(CONF_ANON_ROOT) && !access(conf_get_string(CONF_ANON_ROOT), F_OK))
         {
-            conf->conf_anon_root = conf_get_string("anon_root");
+            conf->conf_anon_root = conf_get_string(CONF_ANON_ROOT);
             ftp_log(FTP_LOG_DEBUG, "anon root :%s", conf->conf_anon_root.c_str());
         }
-        if (conf_has_key("anon_user"))
+        if (conf_has_key(CONF_ANON_USER))
         {
-            conf->conf_anon_user = conf_get_string("anon_user");
+            conf->conf_anon_user = conf_get_string(CONF_ANON_USER);
             ftp_log(FTP_LOG_DEBUG, "anon user :%s", conf->conf_anon_user.c_str());
         }
-        if (conf_has_key("local_enable") && (status = conf_get_bool_YES_NO("local_enable")) != -1)
+        if (conf_has_key(CONF_LOCAL_ENABLE) && (status = conf_get_bool_YES_NO(CONF_LOCAL_ENABLE)) != -1)
         {
             conf->conf_local_enable = status;
             ftp_log(FTP_LOG_DEBUG, "local enable :%d", conf->conf_local_enable);
@@ -80,29 +87,42 @@ void read_conf()
                 ftp_log(FTP_LOG_WARNING, "Waring :both local and anonymous users are disabled ,which means no one can log in.");
             }
         }
-        if (conf_has_key("local_max_rate"))
+        if (conf_has_key(CONF_LOCAL_MAX_RATE))
         {
-            conf->conf_local_max_rate = conf_get_int("local_max_rate");
+            conf->conf_local_max_rate = conf_get_int(CONF_LOCAL_MAX_RATE);
             ftp_log(FTP_LOG_DEBUG, "local_max_rate :%d", conf->conf_local_max_rate);
         }
-        if (conf_has_key("anon_max_rate"))
+        if (conf_has_key(CONF_ANON_MAX_RATE))
         {
-            conf->conf_anon_max_rate = conf_get_int("anon_max_rate");
+            conf->conf_anon_max_rate = conf_get_int(CONF_ANON_MAX_RATE);
             ftp_log(FTP_LOG_DEBUG, "anon_max_rate :%d", conf->conf_anon_max_rate);
         }
-        if (conf_has_key("idle_session_timeout"))
+        if (conf_has_key(CONF_IDLE_SESSION_TIMEOUT))
         {
-            conf->conf_idle_session_timeout = conf_get_int("idle_session_timeout");
+            conf->conf_idle_session_timeout = conf_get_int(CONF_IDLE_SESSION_TIMEOUT);
             ftp_log(FTP_LOG_DEBUG, "idle_session_timeout :%d", conf->conf_idle_session_timeout);
         }
-        if (conf_has_key("transmission_timeout"))
+        if (conf_has_key(CONF_TRANSMISSION_TIMEOUT))
         {
-            conf->conf_transmission_timeout = conf_get_int("transmission_timeout");
+            conf->conf_transmission_timeout = conf_get_int(CONF_TRANSMISSION_TIMEOUT);
             ftp_log(FTP_LOG_DEBUG, "transmission_timeout :%d", conf->conf_transmission_timeout);
         }
+        if (conf_has_key(CONF_SSL_TLSV1_ENABLE) && !strcmp(conf_get_string(CONF_SSL_TLSV1_ENABLE), "YES"))
+        {
+            if (conf_has_key(CONF_RSA_CERT_FILE) && conf_has_key(CONF_RSA_PRIVATE_KEY_FILE) &&
+                SSL_CTX_use_certificate_file(ctx, conf_get_string(CONF_RSA_CERT_FILE), SSL_FILETYPE_PEM) &&
+                SSL_CTX_use_RSAPrivateKey_file(ctx, conf_get_string(CONF_RSA_PRIVATE_KEY_FILE), SSL_FILETYPE_PEM))
+            {
+                conf->conf_ctx = ctx;
+                ftp_log(FTP_LOG_DEBUG, "FTP over TLS enabled");
+            } else
+            {
+                ftp_log(FTP_LOG_ERR, "TLS:pem or key file setting error");
+            }
+        }
 
-        if (!conf_has_key("anon_login_as") ||
-            !(conf->conf_anon_login_as = getpwnam(conf_get_string("anon_login_as"))))
+        if (!conf_has_key(CONF_ANON_LOGIN_AS) ||
+            !(conf->conf_anon_login_as = getpwnam(conf_get_string(CONF_ANON_LOGIN_AS))))
         {
             set_default_passwd:
             if (!(conf->conf_anon_login_as = getpwnam("ftp")))
@@ -133,6 +153,7 @@ int main(int _argc, char **_argv)
     {
         ftp_log(FTP_LOG_ERR, "error: not running as su");
     }
+    SSL_library_init();
     read_conf();
     int socketfd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in server_addr;

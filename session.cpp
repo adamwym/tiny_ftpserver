@@ -18,6 +18,7 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <openssl/ssl.h>
 #include "ls.h"
 #include "log.h"
 #include "utility.h"
@@ -35,7 +36,10 @@ static void sigurg_handler(int)
     int n = ftp->recv_ctl();
     if (n == -1)
     {
-        ftp_log(FTP_LOG_ERR, "error recv while handling SIGURG %s.", errno == EAGAIN ? ":timeout" : "");
+        ftp_log(FTP_LOG_NOTICE, "error recv while handling SIGURG %s.", errno == EAGAIN ? ":timeout" : "");
+        ftp->close_message_socket();
+        ftp->close_ctl_socket();
+        exit(1);
     }
     if (strstr(ftp->m_buff, "ABOR"))
     {
@@ -81,29 +85,62 @@ void ftp_session::send_ctl_error(int _err_code, const char *_err_message, int _c
 }
 void ftp_session::close_ctl_socket()
 {
+    if (m_status.ctl_socket_ssl)
+    {
+        SSL_shutdown(m_status.ctl_socket_ssl);
+        SSL_free(m_status.ctl_socket_ssl);
+        m_status.ctl_socket_ssl = NULL;
+    }
     shutdown(m_ctl_socket, SHUT_WR);
     while (recv(m_ctl_socket, m_buff, 256, 0) > 0);
     close(m_ctl_socket);
+    if (m_conf->conf_ctx)
+        SSL_CTX_free(m_conf->conf_ctx);
+    m_conf->conf_ctx = NULL;
 }
 int ftp_session::send_ctl(int _num)
 {
-    int i = send(m_ctl_socket, m_buff, _num, 0);
+    int i = 0;
+    if (m_status.ctl_socket_ssl)
+    {
+        i = SSL_write(m_status.ctl_socket_ssl, m_buff, _num);
+    } else
+    {
+        i = send(m_ctl_socket, m_buff, _num, 0);
+    }
     if (i == -1)
     {
-        ftp_log(FTP_LOG_ERR, "error send_ctl %s", errno == EAGAIN ? ":timeout" : "");
+        ftp_log(FTP_LOG_NOTICE, "error send_ctl %s", errno == EAGAIN ? ":timeout" : "");
+        close_message_socket();
+        close_ctl_socket();
+        exit(1);
     }
     return i;
 }
 int ftp_session::recv_ctl()
 {
-    int i = recv(m_ctl_socket, m_buff, FTP_BUFF_SIZE, 0);
+    int i = 0;
+    if (m_status.ctl_socket_ssl)
+    {
+        i = SSL_read(m_status.ctl_socket_ssl, m_buff, FTP_BUFF_SIZE);
+    } else
+    {
+        i = recv(m_ctl_socket, m_buff, FTP_BUFF_SIZE, 0);
+    }
     m_buff[i] = '\0';
     return i;
 }
 int ftp_session::recv_message()
 {
     m_speed_ctl.recv_start();
-    int i = recv(m_status.opened_message_fd, m_buff, FTP_BUFF_SIZE, 0);
+    int i = 0;
+    if (m_status.data_socket_ssl)
+    {
+        i = SSL_read(m_status.data_socket_ssl, m_buff, FTP_BUFF_SIZE);
+    } else
+    {
+        i = recv(m_status.opened_message_fd, m_buff, FTP_BUFF_SIZE, 0);
+    }
     if (i == -1)
     {
         ftp_log(FTP_LOG_WARNING, "error while recv_message %s.", errno == EAGAIN ? ":timeout" : "");
@@ -119,7 +156,11 @@ int ftp_session::send_message(int _num)
     while (remain_num)
     {
         num = m_speed_ctl.send_start(remain_num);
-        send_num = send(m_status.opened_message_fd, buff, num, 0);
+        if (m_status.data_socket_ssl)
+        {
+            send_num = SSL_write(m_status.data_socket_ssl, buff, num);
+        } else
+            send_num = send(m_status.opened_message_fd, buff, num, 0);
         if (send_num == -1)
         {
             ftp_log(FTP_LOG_WARNING, "error while send_message %s.", errno == EAGAIN ? ":timeout" : "");
@@ -136,6 +177,12 @@ int ftp_session::send_message(int _num)
 }
 void ftp_session::close_message_socket()
 {
+    if (m_status.data_socket_ssl)
+    {
+        SSL_shutdown(m_status.data_socket_ssl);
+        SSL_free(m_status.data_socket_ssl);
+        m_status.data_socket_ssl = NULL;
+    }
     shutdown(m_status.opened_message_fd, SHUT_RDWR);
     close(m_status.opened_message_fd);
     m_status.opened_message_fd = -1;
@@ -165,22 +212,25 @@ void ftp_session::start_handle()
 #undef x
         send_ctl_error(FTP_NON_EXEC, "Unsupported command.", 0);
     }
-    if (n == 0)
-    {
-        close(m_data_socket);
-        close(m_fd_transfer_fd);
-        close_ctl_socket();
-    }
     if (n == -1)
     {
-        ftp_log(FTP_LOG_ERR, "error while recv %s.", errno == EAGAIN ? ":timeout" : "");
+        ftp_log(FTP_LOG_NOTICE, "error while recv %s.", errno == EAGAIN ? ":timeout" : "");
     }
+    close_message_socket();
+    close(m_data_socket);
+    close(m_fd_transfer_fd);
+    close_ctl_socket();
 }
 void ftp_session::cmd_USER_handler(char *_buff)
 {
     if (m_status.is_login)
     {
         send_ctl_error(FTP_NON_LOGIN_INET, "Can't change user.", 0);
+        return;
+    }
+    if (m_conf->conf_ctx && !m_status.is_auth_mode)
+    {
+        send_ctl_error(FTP_DENIED_FOR_POLICY_REASONS, "SSL is enabled,please send AUTH before login.", 0);
         return;
     }
     char username[256];
@@ -280,6 +330,12 @@ void ftp_session::cmd_PASV_handler(char *_buff)
     }
     set_send_timeout(m_status.opened_message_fd, &timeout);
     set_recv_timeout(m_status.opened_message_fd, &timeout);
+    if (m_conf->conf_ctx && m_status.is_auth_mode)
+    {
+        m_status.data_socket_ssl = SSL_new(m_conf->conf_ctx);
+        SSL_set_fd(m_status.data_socket_ssl, m_status.opened_message_fd);
+        SSL_accept(m_status.data_socket_ssl);
+    }
     m_status.is_passive = 1;
 }
 void ftp_session::cmd_LIST_handler(char *_buff)
@@ -328,7 +384,6 @@ void ftp_session::cmd_TYPE_handler(char *_buff)
     }
     int n = sprintf(m_buff, "%d %s\r\n", FTP_SUCCESS, str);
     send_ctl(n);
-
 }
 void ftp_session::cmd_RETR_handler(char *_buff)
 {
@@ -522,7 +577,7 @@ void ftp_session::cmd_CDUP_handler(char *_buff)
 }
 void ftp_session::cmd_NOOP_handler(char *_buff)
 {
-    int n = sprintf(m_buff, "%d\r\n", FTP_SUCCESS);
+    int n = sprintf(m_buff, "%d \r\n", FTP_SUCCESS);
     send_ctl(n);
 }
 void ftp_session::cmd_PORT_handler(char *_buff)
@@ -550,6 +605,12 @@ void ftp_session::cmd_PORT_handler(char *_buff)
     struct timeval timeout{m_conf->conf_transmission_timeout, 0};
     set_send_timeout(m_status.opened_message_fd, &timeout);
     set_recv_timeout(m_status.opened_message_fd, &timeout);
+    if (m_conf->conf_ctx && m_status.is_auth_mode)
+    {
+        m_status.data_socket_ssl = SSL_new(m_conf->conf_ctx);
+        SSL_set_fd(m_status.data_socket_ssl, m_status.opened_message_fd);
+        SSL_accept(m_status.data_socket_ssl);
+    }
     int n = sprintf(m_buff, "%d PORT command successful. Consider using PASV.\r\n", FTP_SUCCESS);
     send_ctl(n);
     m_status.is_passive = 0;
@@ -569,6 +630,56 @@ void ftp_session::cmd_SIZE_handler(char *_buff)
 void ftp_session::cmd_ABOR_handler(char *_buff)
 {
     send_ctl_error(FTP_ABOR_NO_CONN, "No transfer to abort.", 0);
+}
+void ftp_session::cmd_PBSZ_handler(char *_buff)
+{
+    strcpy(m_buff, "200 PBSZ is always 0.\r\n");
+    send_ctl(strlen(m_buff));
+}
+void ftp_session::cmd_PROT_handler(char *_buff)
+{
+    rm_CRLF(_buff);
+    if (*_buff == 'P')
+    {
+        m_status.prot_value = 'P';
+        strcpy(m_buff, "200 PROT now Private.\r\n");
+        send_ctl(strlen(m_buff));
+    } else if (*_buff == 'C')
+    {
+        m_status.prot_value = 'C';
+        strcpy(m_buff, "200 PROT now Clear.\r\n");
+        send_ctl(strlen(m_buff));
+    } else
+    {
+        send_ctl_error(FTP_ARG_NOT_IMPLEMENT, "PROT not implemented.", 0);
+    }
+}
+void ftp_session::cmd_AUTH_handler(char *_buff)
+{
+    //already login or sended AUTH command before
+    //in this case,entering or changing AUTH mode is not allowed
+    if (m_status.is_auth_mode || m_status.is_login || m_status.specifyed_user)
+    {
+        send_ctl_error(FTP_DENIED_FOR_POLICY_REASONS, "(Re)Entering AUTH mode is not allowed.", 0);
+        return;
+    }
+    rm_CRLF(_buff);
+    if (strcmp(_buff, "TLS"))
+    {
+        send_ctl_error(FTP_DENIED_FOR_POLICY_REASONS, "Authentication mode not supported.", 0);
+        return;
+    }
+    if (!m_conf->conf_ctx)//todo:check conf file 530 please login with user and pass
+    {
+        send_ctl_error(FTP_NON_LOGIN_INET, "Please login with USER and PASS.", 0);
+        return;
+    }
+    m_status.is_auth_mode = 1;
+    int n = sprintf(m_buff, "%d Proceed with negotiation.\r\n", FTP_SECURITY_DATA_EXCHANGED);
+    send_ctl(n);
+    m_status.ctl_socket_ssl = SSL_new(m_conf->conf_ctx);
+    SSL_set_fd(m_status.ctl_socket_ssl, m_ctl_socket);
+    SSL_accept(m_status.ctl_socket_ssl);
 }
 int ftp_session::speed_control::send_start(int _num)
 {
