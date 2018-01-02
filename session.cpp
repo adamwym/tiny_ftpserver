@@ -663,15 +663,15 @@ void ftp_session::cmd_AUTH_handler(char *_buff)
         send_ctl_error(FTP_DENIED_FOR_POLICY_REASONS, "(Re)Entering AUTH mode is not allowed.", 0);
         return;
     }
+    if (!m_conf->conf_ctx)
+    {
+        send_ctl_error(FTP_NON_LOGIN_INET, "Please login with USER and PASS.", 0);
+        return;
+    }
     rm_CRLF(_buff);
     if (strcmp(_buff, "TLS"))
     {
         send_ctl_error(FTP_DENIED_FOR_POLICY_REASONS, "Authentication mode not supported.", 0);
-        return;
-    }
-    if (!m_conf->conf_ctx)//todo:check conf file 530 please login with user and pass
-    {
-        send_ctl_error(FTP_NON_LOGIN_INET, "Please login with USER and PASS.", 0);
         return;
     }
     m_status.is_auth_mode = 1;
