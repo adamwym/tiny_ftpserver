@@ -96,6 +96,7 @@ enum
 #define CONF_ANON_LOGIN_AS "anon_login_as"
 #define CONF_RSA_CERT_FILE "rsa_cert_file"
 #define CONF_RSA_PRIVATE_KEY_FILE "rsa_private_key_file"
+#define CONF_FORCE_ANON_LOGINS_SSL "force_anon_logins_ssl"
 
 struct conf_status
 {
@@ -111,5 +112,6 @@ struct conf_status
     std::string conf_anon_root = "/var/ftp";
     struct passwd *conf_anon_login_as = NULL;
     SSL_CTX *conf_ctx = NULL;
+    bool conf_force_anon_logins_ssl = 0;
 };
 #endif //TINY_FTPSERVER_FTP_DEF_H

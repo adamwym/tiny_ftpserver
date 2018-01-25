@@ -228,15 +228,15 @@ void ftp_session::cmd_USER_handler(char *_buff)
         send_ctl_error(FTP_NON_LOGIN_INET, "Can't change user.", 0);
         return;
     }
-    if (m_conf->conf_ctx && !m_status.is_auth_mode)
+    char username[256];
+    get_message(_buff, username, 256);
+    bool login_as_anon=m_conf->conf_anon_enable && !m_conf->conf_anon_user.compare(username);
+    if (m_conf->conf_ctx && !m_status.is_auth_mode && (!login_as_anon || m_conf->conf_force_anon_logins_ssl))
     {
         send_ctl_error(FTP_DENIED_FOR_POLICY_REASONS, "SSL is enabled,please send AUTH before login.", 0);
         return;
     }
-    char username[256];
-    get_message(_buff, username, 256);
-    ftp_log(FTP_LOG_DEBUG, "login in with username:%s", username);
-    if (m_conf->conf_anon_enable && !m_conf->conf_anon_user.compare(username))
+    if (login_as_anon)
     {
         m_pass = m_conf->conf_anon_login_as;
         m_status.is_anon = 1;
@@ -246,6 +246,7 @@ void ftp_session::cmd_USER_handler(char *_buff)
     {
         m_pass = getpwnam(username);
         m_speed_ctl.set_speed_limit(m_conf->conf_local_max_rate);
+        ftp_log(FTP_LOG_DEBUG, "login in with username:%s", username);
     }
     m_status.specifyed_user = 1;
     int n = sprintf(m_buff, "%d please specify password\r\n", FTP_NEED_PASS);
