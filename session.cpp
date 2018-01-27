@@ -633,25 +633,39 @@ void ftp_session::cmd_ABOR_handler(char *_buff)
 }
 void ftp_session::cmd_PBSZ_handler(char *_buff)
 {
-    strcpy(m_buff, "200 PBSZ is always 0.\r\n");
-    send_ctl(strlen(m_buff));
+    if (!m_conf->conf_ctx || !m_status.is_auth_mode)
+    {
+        send_ctl_error(FTP_FILE_UNAVAILABLE, "Permission denied.", 0);
+        return;
+    } else
+    {
+        strcpy(m_buff, "200 PBSZ is always 0.\r\n");
+        send_ctl(strlen(m_buff));
+    }
 }
 void ftp_session::cmd_PROT_handler(char *_buff)
 {
-    rm_CRLF(_buff);
-    if (*_buff == 'P')
+    if (!m_conf->conf_ctx || !m_status.is_auth_mode)
     {
-        m_status.prot_value = 'P';
-        strcpy(m_buff, "200 PROT now Private.\r\n");
-        send_ctl(strlen(m_buff));
-    } else if (*_buff == 'C')
-    {
-        m_status.prot_value = 'C';
-        strcpy(m_buff, "200 PROT now Clear.\r\n");
-        send_ctl(strlen(m_buff));
+        send_ctl_error(FTP_FILE_UNAVAILABLE, "Permission denied.", 0);
+        return;
     } else
     {
-        send_ctl_error(FTP_ARG_NOT_IMPLEMENT, "PROT not implemented.", 0);
+        rm_CRLF(_buff);
+        if (*_buff == 'P')
+        {
+            m_status.prot_value = 'P';
+            strcpy(m_buff, "200 PROT now Private.\r\n");
+            send_ctl(strlen(m_buff));
+        } else if (*_buff == 'C')
+        {
+            m_status.prot_value = 'C';
+            strcpy(m_buff, "200 PROT now Clear.\r\n");
+            send_ctl(strlen(m_buff));
+        } else
+        {
+            send_ctl_error(FTP_ARG_NOT_IMPLEMENT, "PROT not implemented.", 0);
+        }
     }
 }
 void ftp_session::cmd_AUTH_handler(char *_buff)
