@@ -208,7 +208,10 @@ void ftp_session::start_handle()
     {
         char *buff = m_buff;
 #define x(a, b) if(strstr(buff,#b)==buff){buff+=strlen(#b)+1;cmd_##b##_handler(buff);continue;}
-        FTP_LIST
+        FTP_LIST_NO_NEED_LOGIN
+#undef x
+#define x(a, b) if(strstr(buff,#b)==buff){if(!m_status.is_login) {send_ctl_error(FTP_NON_LOGIN_INET, "Please login first.", 0); continue;}buff+=strlen(#b)+1;cmd_##b##_handler(buff);continue;}
+        FTP_LIST_NEED_LOGIN
 #undef x
         send_ctl_error(FTP_NON_EXEC, "Unsupported command.", 0);
     }
@@ -230,7 +233,7 @@ void ftp_session::cmd_USER_handler(char *_buff)
     }
     char username[256];
     get_message(_buff, username, 256);
-    bool login_as_anon=m_conf->conf_anon_enable && !m_conf->conf_anon_user.compare(username);
+    bool login_as_anon = m_conf->conf_anon_enable && !m_conf->conf_anon_user.compare(username);
     if (m_conf->conf_ctx && !m_status.is_auth_mode && (!login_as_anon || m_conf->conf_force_anon_logins_ssl))
     {
         send_ctl_error(FTP_DENIED_FOR_POLICY_REASONS, "SSL is enabled,please send AUTH before login.", 0);

@@ -39,7 +39,8 @@ public:
 
 private:
 #define x(a, b) void cmd_##b##_handler(char *_buff);
-    FTP_LIST
+    FTP_LIST_NEED_LOGIN
+    FTP_LIST_NO_NEED_LOGIN
 #undef x
     void send_ctl_error(int _err_code, const char *_err_message, int _close = 1);
 

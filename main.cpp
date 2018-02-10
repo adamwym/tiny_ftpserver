@@ -120,7 +120,8 @@ void read_conf()
                 ftp_log(FTP_LOG_ERR, "TLS:pem or key file setting error");
             }
         }
-        if (conf->conf_ctx && conf_has_key(CONF_FORCE_ANON_LOGINS_SSL) && (status = conf_get_bool_YES_NO(CONF_FORCE_ANON_LOGINS_SSL)) != -1)
+        if (conf->conf_ctx && conf_has_key(CONF_FORCE_ANON_LOGINS_SSL) &&
+            (status = conf_get_bool_YES_NO(CONF_FORCE_ANON_LOGINS_SSL)) != -1)
         {
             conf->conf_force_anon_logins_ssl = status;
             ftp_log(FTP_LOG_DEBUG, "everyone must using FTPS: %d", conf->conf_force_anon_logins_ssl);

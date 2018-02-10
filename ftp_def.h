@@ -12,7 +12,7 @@
 
 #define FTP_READY 220
 #define FTP_QUIT_INET 221
-#define  FTP_NEED_PASS 331
+#define FTP_NEED_PASS 331
 #define FTP_LOGIN_INET 230
 #define FTP_SYS_TYPE 215
 #define FTP_FIN_FILEB 250
@@ -46,16 +46,23 @@
 #define IP 0364
 #define DM 0362
 
-#define FTP_LIST \
+#define FTP_LIST_NO_NEED_LOGIN \
         x(FTP_CMD_USER,USER)\
         x(FTP_CMD_PASS,PASS)\
         x(FTP_CMD_SYST,SYST)\
+        x(FTP_CMD_QUIT,QUIT)\
+        x(FTP_CMD_TYPE,TYPE)\
+        x(FTP_CMD_NOOP,NOOP)\
+        x(FTP_CMD_ABOR,ABOR)\
+        x(FTP_CMD_AUTH,AUTH)\
+        x(FTP_CMD_PBSZ,PBSZ)\
+        x(FTP_CMD_PROT,PROT)
+
+#define FTP_LIST_NEED_LOGIN \
         x(FTP_CMD_PASV,PASV)\
         x(FTP_CMD_LIST,LIST)\
-        x(FTP_CMD_QUIT,QUIT)\
         x(FTP_CMD_PWD,PWD)\
         x(FTP_CMD_CWD,CWD)\
-        x(FTP_CMD_TYPE,TYPE)\
         x(FTP_CMD_RETR,RETR)\
         x(FTP_CMD_STOR,STOR)\
         x(FTP_CMD_MKD,MKD)\
@@ -64,20 +71,16 @@
         x(FTP_CMD_RNFR,RNFR)\
         x(FTP_CMD_RNTO,RNTO)\
         x(FTP_CMD_CDUP,CDUP)\
-        x(FTP_CMD_NOOP,NOOP)\
         x(FTP_CMD_PORT,PORT)\
-        x(FTP_CMD_SIZE,SIZE)\
-        x(FTP_CMD_ABOR,ABOR)\
-        x(FTP_CMD_AUTH,AUTH)\
-        x(FTP_CMD_PBSZ,PBSZ)\
-        x(FTP_CMD_PROT,PROT)
+        x(FTP_CMD_SIZE,SIZE)
 enum
 {
     FTP_TYPE_ASCII,
     FTP_TYPE_BINARY,
 
 #define x(a, b) a,
-    FTP_LIST
+    FTP_LIST_NEED_LOGIN
+    FTP_LIST_NO_NEED_LOGIN
 #undef x
 };
 
