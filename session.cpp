@@ -284,6 +284,9 @@ void ftp_session::cmd_QUIT_handler(char *_buff)
 {
     int n = sprintf(m_buff, "%d goodbye\r\n", FTP_QUIT_INET);
     send_ctl(n);
+    close_message_socket();
+    close_ctl_socket();
+    exit(0);
 }
 void ftp_session::cmd_PWD_handler(char *_buff)
 {
