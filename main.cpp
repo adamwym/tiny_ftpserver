@@ -38,7 +38,11 @@ void read_conf()
     {
         SSL_CTX_free(ctx);
     }
+#if OPENSSL_VERSION_NUMBER >= 0x1010007fL
     ctx = SSL_CTX_new(TLS_server_method());
+#else
+    ctx = SSL_CTX_new(TLSv1_server_method());
+#endif
     conf = (conf_status *) malloc(sizeof(conf_status));
     new(conf) conf_status;
     const char *conf_file = NULL;
