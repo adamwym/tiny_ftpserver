@@ -206,6 +206,15 @@ void ftp_session::start_handle()
     int n = -1;
     while ((n = recv_ctl()) > 0)
     {
+        for (int i = 0; i < n; ++i)
+        {
+            char cmd_char = *(m_buff + i);
+            if (cmd_char != ' ' && cmd_char != '\r' && cmd_char)
+            {
+                *(m_buff + i) = (char) toupper(cmd_char);
+            } else
+                break;
+        }
         char *buff = m_buff;
 #define x(a, b) if(strstr(buff,#b)==buff){buff+=strlen(#b)+1;cmd_##b##_handler(buff);continue;}
         FTP_LIST_NO_NEED_LOGIN
