@@ -187,6 +187,20 @@ void ftp_session::close_message_socket()
     close(m_status.opened_message_fd);
     m_status.opened_message_fd = -1;
 }
+void ftp_session::shutdown_message_wait()
+{
+    if (m_status.data_socket_ssl)
+    {
+        SSL_shutdown(m_status.data_socket_ssl);
+        SSL_free(m_status.data_socket_ssl);
+        m_status.data_socket_ssl = NULL;
+    }
+    shutdown(m_status.opened_message_fd, SHUT_WR);
+    while (recv(m_status.opened_message_fd, m_buff, LINE_MAX, 0));
+    shutdown(m_status.opened_message_fd, SHUT_RD);
+    close(m_status.opened_message_fd);
+    m_status.opened_message_fd = -1;
+}
 int ftp_session::get_message(char *_src, char *_dst, size_t _max_num)
 {
     size_t n = strlen(_src);
@@ -375,7 +389,8 @@ void ftp_session::cmd_LIST_handler(char *_buff)
     while ((n = ls_to_str(ls, m_buff, FTP_BUFF_SIZE + 1)) != -1 && n)
         if (send_message(n) == -1)
             break;
-    close_message_socket();
+    //close_message_socket();
+    shutdown_message_wait();
     n = sprintf(m_buff, "%d Directories send OK\r\n", FTP_CLOSE_DATA_CONN);
     send_ctl(n);
 }
@@ -445,7 +460,8 @@ void ftp_session::cmd_RETR_handler(char *_buff)
             break;
     }
     fclose(fp);
-    close_message_socket();
+    //close_message_socket();
+    shutdown_message_wait();
     n = sprintf(m_buff, "%d Transfer complete.\r\n", FTP_CLOSE_DATA_CONN);
     send_ctl(n);
 }
