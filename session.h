@@ -36,6 +36,7 @@ public:
     void rm_CRLF(char *_ptr);
     void close_ctl_socket();
     void close_message_socket();
+    void shutdown_message_wait();
 
 private:
 #define x(a, b) void cmd_##b##_handler(char *_buff);

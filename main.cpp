@@ -20,11 +20,16 @@ conf_status *conf = NULL;
 SSL_CTX *ctx = NULL;
 static int argc = 1;
 static char **argv = NULL;
+int max_clients = 0;
+int current_clients = 0;
 void sigchild_handler(int i)
 {
     pid_t pid;
     while ((pid = waitpid(-1, nullptr, WNOHANG)) > 0)
+    {
         ftp_log(FTP_LOG_DEBUG, "one client disconnected with pid %d.", pid);
+        --current_clients;
+    }
 }
 
 void read_conf()
@@ -130,6 +135,14 @@ void read_conf()
             conf->conf_force_anon_logins_ssl = status;
             ftp_log(FTP_LOG_DEBUG, "everyone must using FTPS: %d", conf->conf_force_anon_logins_ssl);
         }
+        if (conf_has_key(CONF_MAX_CLIENTS))
+        {
+            max_clients = conf_get_int(CONF_MAX_CLIENTS);
+            ftp_log(FTP_LOG_DEBUG, "max_clients limited to %d", max_clients);
+        } else
+        {
+            max_clients = 0;
+        }
 
         if (!conf_has_key(CONF_ANON_LOGIN_AS) ||
             !(conf->conf_anon_login_as = getpwnam(conf_get_string(CONF_ANON_LOGIN_AS))))
@@ -195,30 +208,39 @@ int main(int _argc, char **_argv)
         if (FD_ISSET(socketfd, &result))
         {
             sockaccept = accept(socketfd, NULL, NULL);
-            ftp_log(FTP_LOG_DEBUG, "one client connected");
-            int forkpid;
-            int fd[2];
-            socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
-            if ((forkpid = fork()) == 0)//child
+            if (max_clients && current_clients >= max_clients)
             {
-                close(socketfd);
-                close(fd[0]);
-                ftp_session sess(sockaccept, fd[1], conf);
-                sess.ftp_init();
-                sess.start_handle();
-                exit(0);
-            } else if (forkpid > 0)
-            {
+                const char buffer[] = "421 Too many users now, please try it later.\r\n";
+                send(sockaccept, buffer, sizeof(buffer) - 1, 0);
                 close(sockaccept);
-                close(fd[1]);
-                if (fd[0] > maxfd)
-                    maxfd = fd[0];
-                FD_SET(fd[0], &fdset);
-                fd_arry.push_back(fd[0]);
             } else
             {
-                close(sockaccept);
-                continue;
+                ftp_log(FTP_LOG_DEBUG, "one client connected");
+                int forkpid;
+                int fd[2];
+                socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
+                if ((forkpid = fork()) == 0)//child
+                {
+                    close(socketfd);
+                    close(fd[0]);
+                    ftp_session sess(sockaccept, fd[1], conf);
+                    sess.ftp_init();
+                    sess.start_handle();
+                    exit(0);
+                } else if (forkpid > 0)
+                {
+                    close(sockaccept);
+                    close(fd[1]);
+                    if (fd[0] > maxfd)
+                        maxfd = fd[0];
+                    FD_SET(fd[0], &fdset);
+                    fd_arry.push_back(fd[0]);
+                    ++current_clients;
+                } else
+                {
+                    close(sockaccept);
+                    continue;
+                }
             }
         }
         for (auto i = fd_arry.begin(); i != fd_arry.end();)

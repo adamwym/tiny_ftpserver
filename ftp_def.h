@@ -32,6 +32,7 @@
 #define FTP_FILE_STATUS_RESPONSE 213
 #define FTP_ABOR_NO_CONN 225
 #define FTP_CAN_NOT_OPEN_CONNECTION 425
+#define FTP_SERVICE_CLOSED 421
 
 
 //ssl FTP replies
@@ -100,6 +101,7 @@ enum
 #define CONF_RSA_CERT_FILE "rsa_cert_file"
 #define CONF_RSA_PRIVATE_KEY_FILE "rsa_private_key_file"
 #define CONF_FORCE_ANON_LOGINS_SSL "force_anon_logins_ssl"
+#define CONF_MAX_CLIENTS "max_clients"
 
 struct conf_status
 {
