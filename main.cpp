@@ -184,6 +184,11 @@ int main(int _argc, char **_argv)
     server_addr.sin_port = htons(21);
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
+    int flag = 1;
+    if (setsockopt(socketfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int)))
+    {
+        ftp_log(FTP_LOG_ERR, "error while setting SO_REUSEADDR");
+    }
     if (bind(socketfd, (struct sockaddr *) &server_addr, sizeof(server_addr)))
     {
         ftp_log(FTP_LOG_ERR, "error while binding");
