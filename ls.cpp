@@ -112,7 +112,7 @@ int generate_dirs(ls_type &_ls_type, const char *_path, int _ignore_hidden_file,
     {
         if (_ignore_hidden_file)
         {
-            if (!strcmp(dir->d_name, ".") || !strcmp(dir->d_name, ".."))
+            if (strstr(dir->d_name, ".") == dir->d_name || strstr(dir->d_name, "..") == dir->d_name)
                 continue;
         }
         _ls_type.infos.push_back(generate_dirs_file(dir->d_name, &max, _is_anon));
