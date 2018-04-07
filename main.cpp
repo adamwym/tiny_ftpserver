@@ -31,7 +31,11 @@ void sigchild_handler(int i)
         --current_clients;
     }
 }
-
+struct childfd_PORTfd
+{
+    int child_fd;
+    int PORT_fd;
+};
 void read_conf()
 {
     if (conf)
@@ -178,7 +182,7 @@ int main(int _argc, char **_argv)
     }
     SSL_library_init();
     read_conf();
-    int socketfd = socket(AF_INET, SOCK_STREAM, 0);
+    int socketfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_port = htons(21);
@@ -196,27 +200,38 @@ int main(int _argc, char **_argv)
     listen(socketfd, 10);
     int sockaccept = -1;
     int forknum = -1;
-    vector<int> fd_arry;
-    fd_set result, fdset;
+    vector<int> fd_array;
+    vector<childfd_PORTfd> fd_array_connecting;
+    fd_set result_read, result_write, fdset_read, fdset_write;
     int maxfd = socketfd;
-    FD_ZERO(&fdset);
-    FD_SET(socketfd, &fdset);
+    FD_ZERO(&fdset_read);
+    FD_ZERO(&fdset_write);
+    FD_SET(socketfd, &fdset_read);
     for (;;)
     {
-        result = fdset;
-        if (select(maxfd + 1, &result, NULL, NULL, NULL) == -1)
+        result_read = fdset_read;
+        result_write = fdset_write;
+        if (select(maxfd + 1, &result_read, &result_write, NULL, NULL) == -1)
         {
             if (errno == EINTR)
                 continue;
             ftp_log(FTP_LOG_ERR, "select error");
         }
-        if (FD_ISSET(socketfd, &result))
+        if (FD_ISSET(socketfd, &result_read))
         {
-            sockaccept = accept(socketfd, NULL, NULL);
+            if ((sockaccept = accept(socketfd, NULL, NULL)) == -1)
+            {
+                if (errno == EWOULDBLOCK || errno == ECONNABORTED || errno == EINTR)
+                    continue;
+                ftp_log(FTP_LOG_ERR, "accept error");
+            }
             if (max_clients && current_clients >= max_clients)
             {
+                int origin_mode = fcntl(sockaccept, F_GETFL, 0);
+                fcntl(sockaccept, F_SETFL, origin_mode | O_NONBLOCK);
                 const char buffer[] = "421 Too many users now, please try it later.\r\n";
                 send(sockaccept, buffer, sizeof(buffer) - 1, 0);
+                fcntl(sockaccept, F_SETFL, origin_mode);
                 close(sockaccept);
             } else
             {
@@ -238,8 +253,8 @@ int main(int _argc, char **_argv)
                     close(fd[1]);
                     if (fd[0] > maxfd)
                         maxfd = fd[0];
-                    FD_SET(fd[0], &fdset);
-                    fd_arry.push_back(fd[0]);
+                    FD_SET(fd[0], &fdset_read);
+                    fd_array.push_back(fd[0]);
                     ++current_clients;
                 } else
                 {
@@ -248,9 +263,9 @@ int main(int _argc, char **_argv)
                 }
             }
         }
-        for (auto i = fd_arry.begin(); i != fd_arry.end();)
+        for (auto i = fd_array.begin(); i != fd_array.end();)
         {
-            if (FD_ISSET(*i, &result))
+            if (FD_ISSET(*i, &result_read))
             {
                 struct sockaddr_in sockaddr, socklocal;
                 if (recv_request(*i, &sockaddr))
@@ -259,28 +274,74 @@ int main(int _argc, char **_argv)
                     socklocal.sin_port = htons(20);
                     socklocal.sin_family = AF_INET;
                     socklocal.sin_addr.s_addr = sockaddr.sin_addr.s_addr;
-                    int sock_to_send = socket(AF_INET, SOCK_STREAM, 0);
+                    int sock_to_send = socket(AF_INET, SOCK_STREAM | O_NONBLOCK, 0);
                     int flag = 1;
                     setsockopt(sock_to_send, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int));
                     bind(sock_to_send, (struct sockaddr *) &socklocal, sizeof(socklocal));
                     struct timeval timeout{conf->conf_transmission_timeout, 0};
-                    set_send_timeout(sock_to_send, &timeout);//set connect timeout to avoid blocking the main process
+                    set_send_timeout(sock_to_send, &timeout);//set connect timeout to avoid occupying resources
                     if (connect(sock_to_send, (struct sockaddr *) &sockaddr, sizeof(struct sockaddr_in)) == -1)
                     {
-                        ftp_log(FTP_LOG_WARNING, "error while connecting with PORT mode.");
-                        send_fd(*i, -1);
+                        if (errno != EINPROGRESS)
+                        {
+                            ftp_log(FTP_LOG_WARNING, "error while connecting with PORT mode.");
+                            send_fd(*i, -1);
+                            close(sock_to_send);
+                        } else
+                        {
+                            //connect still in progress,add the fd to fdset_write and fdset_read
+                            FD_SET(sock_to_send, &fdset_read);
+                            FD_SET(sock_to_send, &fdset_write);
+                            childfd_PORTfd fd_struct = {*i, sock_to_send};
+                            fd_array_connecting.push_back(fd_struct);
+                            if (sock_to_send > maxfd)
+                                maxfd = sock_to_send;
+                            ftp_log(FTP_LOG_DEBUG, "a PORT connect is in progress");
+                        }
                     } else
+                    {
+                        //connect finished immediately
+                        //don't forget to restore the fd to blocking I/O
+                        fcntl(sock_to_send, F_SETFL, fcntl(sock_to_send, F_GETFL, 0) & ~O_NONBLOCK);
                         send_fd(*i, sock_to_send);
-                    close(sock_to_send);
+                        close(sock_to_send);
+                    }
                     ++i;
                 } else
                 {
                     //child closed,remove fd
                     close(*i);
-                    FD_CLR(*i, &fdset);
+                    FD_CLR(*i, &fdset_read);
                     ftp_log(FTP_LOG_DEBUG, "one client deleted");
-                    fd_arry.erase(i);
+                    fd_array.erase(i);
                 }
+            } else
+                ++i;
+        }
+        for (auto i = fd_array_connecting.begin(); i != fd_array_connecting.end();)
+        {
+            //handle the connecting fds, check whether connected or failed
+            if (FD_ISSET((*i).PORT_fd, &result_read) || FD_ISSET((*i).PORT_fd, &result_write))
+            {
+                int error;
+                socklen_t len = sizeof(int);
+                getsockopt((*i).PORT_fd, SOL_SOCKET, SO_ERROR, &error, &len);
+                if (error)
+                {
+                    //timeout, close it
+                    ftp_log(FTP_LOG_WARNING, "error while connecting with PORT mode.");
+                    send_fd((*i).child_fd, -1);
+                } else
+                {
+                    //connected, now we can pass the fd to child
+                    //don't forget to restore the fd to blocking I/O
+                    fcntl((*i).PORT_fd, F_SETFL, fcntl((*i).PORT_fd, F_GETFL, 0) & ~O_NONBLOCK);
+                    send_fd((*i).child_fd, (*i).PORT_fd);
+                }
+                close((*i).PORT_fd);
+                FD_CLR((*i).PORT_fd, &fdset_read);
+                FD_CLR((*i).PORT_fd, &fdset_write);
+                fd_array_connecting.erase(i);
             } else
                 ++i;
         }
