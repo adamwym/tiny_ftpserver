@@ -7,8 +7,8 @@
 #include <cstring>
 #include <libnet.h>
 #include <wait.h>
-#include <vector>
 #include <openssl/ssl.h>
+#include <sys/epoll.h>
 #include "session.h"
 #include "fd_transfer.h"
 #include "parse_conf.h"
@@ -21,7 +21,7 @@ SSL_CTX *ctx = NULL;
 static int argc = 1;
 static char **argv = NULL;
 int max_clients = 0;
-int current_clients = 0;
+volatile int current_clients = 0;
 void sigchild_handler(int i)
 {
     pid_t pid;
@@ -31,10 +31,10 @@ void sigchild_handler(int i)
         --current_clients;
     }
 }
-struct childfd_PORTfd
+struct fd_data
 {
+    int fd;
     int child_fd;
-    int PORT_fd;
 };
 void read_conf()
 {
@@ -199,151 +199,169 @@ int main(int _argc, char **_argv)
     }
     listen(socketfd, 10);
     int sockaccept = -1;
-    int forknum = -1;
-    vector<int> fd_array;
-    vector<childfd_PORTfd> fd_array_connecting;
-    fd_set result_read, result_write, fdset_read, fdset_write;
-    int maxfd = socketfd;
-    FD_ZERO(&fdset_read);
-    FD_ZERO(&fdset_write);
-    FD_SET(socketfd, &fdset_read);
+
+    int epoll_fd = epoll_create(1);
+    int epoll_returned_num = 0;
+    epoll_event epoll_events[FTP_EPOLL_EVENT_NUM];
+    epoll_event sockfd_epoll_event;
+    sockfd_epoll_event.events = EPOLLIN;
+    if (!(sockfd_epoll_event.data.ptr = malloc(sizeof(fd_data))))
+    {
+        ftp_log(FTP_LOG_ERR, "malloc error.");
+    }
+    *(fd_data *) (sockfd_epoll_event.data.ptr) = {socketfd, 0};
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socketfd, &sockfd_epoll_event))
+    {
+        ftp_log(FTP_LOG_ERR, "epoll_ctl error.");
+    }
+
     for (;;)
     {
-        result_read = fdset_read;
-        result_write = fdset_write;
-        if (select(maxfd + 1, &result_read, &result_write, NULL, NULL) == -1)
+        if ((epoll_returned_num = epoll_wait(epoll_fd, epoll_events, FTP_EPOLL_EVENT_NUM, -1)) == -1)
         {
             if (errno == EINTR)
                 continue;
-            ftp_log(FTP_LOG_ERR, "select error");
+            ftp_log(FTP_LOG_ERR, "epoll_wait error.");
         }
-        if (FD_ISSET(socketfd, &result_read))
+        for (int i = 0; i < epoll_returned_num; ++i)
         {
-            if ((sockaccept = accept(socketfd, NULL, NULL)) == -1)
+            int fd = ((fd_data *) epoll_events[i].data.ptr)->fd;
+            int child_fd = ((fd_data *) epoll_events[i].data.ptr)->child_fd;
+            if (epoll_events[i].events == EPOLLIN)
             {
-                if (errno == EWOULDBLOCK || errno == ECONNABORTED || errno == EINTR)
-                    continue;
-                ftp_log(FTP_LOG_ERR, "accept error");
-            }
-            if (max_clients && current_clients >= max_clients)
-            {
-                int origin_mode = fcntl(sockaccept, F_GETFL, 0);
-                fcntl(sockaccept, F_SETFL, origin_mode | O_NONBLOCK);
-                const char buffer[] = "421 Too many users now, please try it later.\r\n";
-                send(sockaccept, buffer, sizeof(buffer) - 1, 0);
-                fcntl(sockaccept, F_SETFL, origin_mode);
-                close(sockaccept);
-            } else
-            {
-                ftp_log(FTP_LOG_DEBUG, "one client connected");
-                int forkpid;
-                int fd[2];
-                socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
-                if ((forkpid = fork()) == 0)//child
+                //case for main listen socket or PORT-asked fd from child
+                if (fd == socketfd)
                 {
-                    close(socketfd);
-                    close(fd[0]);
-                    ftp_session sess(sockaccept, fd[1], conf);
-                    sess.ftp_init();
-                    sess.start_handle();
-                    exit(0);
-                } else if (forkpid > 0)
-                {
-                    close(sockaccept);
-                    close(fd[1]);
-                    if (fd[0] > maxfd)
-                        maxfd = fd[0];
-                    FD_SET(fd[0], &fdset_read);
-                    fd_array.push_back(fd[0]);
-                    ++current_clients;
-                } else
-                {
-                    close(sockaccept);
-                    continue;
-                }
-            }
-        }
-        for (auto i = fd_array.begin(); i != fd_array.end();)
-        {
-            if (FD_ISSET(*i, &result_read))
-            {
-                struct sockaddr_in sockaddr, socklocal;
-                if (recv_request(*i, &sockaddr))
-                {
-                    memset(&socklocal, 0, sizeof(socklocal));
-                    socklocal.sin_port = htons(20);
-                    socklocal.sin_family = AF_INET;
-                    socklocal.sin_addr.s_addr = sockaddr.sin_addr.s_addr;
-                    int sock_to_send = socket(AF_INET, SOCK_STREAM | O_NONBLOCK, 0);
-                    int flag = 1;
-                    setsockopt(sock_to_send, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int));
-                    bind(sock_to_send, (struct sockaddr *) &socklocal, sizeof(socklocal));
-                    struct timeval timeout{conf->conf_transmission_timeout, 0};
-                    set_send_timeout(sock_to_send, &timeout);//set connect timeout to avoid occupying resources
-                    if (connect(sock_to_send, (struct sockaddr *) &sockaddr, sizeof(struct sockaddr_in)) == -1)
+                    //new connection incoming
+                    if ((sockaccept = accept(socketfd, NULL, NULL)) == -1)
                     {
-                        if (errno != EINPROGRESS)
+                        if (errno == EWOULDBLOCK || errno == ECONNABORTED || errno == EINTR)
+                            continue;
+                        ftp_log(FTP_LOG_ERR, "accept error");
+                    }
+                    if (max_clients && current_clients >= max_clients)
+                    {
+                        int origin_mode = fcntl(sockaccept, F_GETFL, 0);
+                        fcntl(sockaccept, F_SETFL, origin_mode | O_NONBLOCK);
+                        const char buffer[] = "421 Too many users now, please try it later.\r\n";
+                        send(sockaccept, buffer, sizeof(buffer) - 1, 0);
+                        fcntl(sockaccept, F_SETFL, origin_mode);
+                        close(sockaccept);
+                    } else
+                    {
+                        ftp_log(FTP_LOG_DEBUG, "one client connected");
+                        int forkpid;
+                        int fd_pipe[2];
+                        socketpair(AF_UNIX, SOCK_STREAM, 0, fd_pipe);
+                        if ((forkpid = fork()) == 0)//child
                         {
-                            ftp_log(FTP_LOG_WARNING, "error while connecting with PORT mode.");
-                            send_fd(*i, -1);
-                            close(sock_to_send);
+                            close(socketfd);
+                            close(epoll_fd);
+                            close(fd_pipe[0]);
+                            ftp_session sess(sockaccept, fd_pipe[1], conf);
+                            sess.ftp_init();
+                            sess.start_handle();
+                            exit(0);
+                        } else if (forkpid > 0)//parent
+                        {
+                            close(sockaccept);
+                            close(fd_pipe[1]);
+                            epoll_event event;
+                            event.events = EPOLLIN;
+                            if (!(event.data.ptr = malloc(sizeof(fd_data))))
+                            {
+                                ftp_log(FTP_LOG_ERR, "malloc error.");
+                            }
+                            *((fd_data *) event.data.ptr) = {fd_pipe[0], 0};
+                            if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd_pipe[0], &event))
+                            {
+                                ftp_log(FTP_LOG_ERR, "epoll_ctl error while adding fd.");
+                            }
+                            ++current_clients;
                         } else
                         {
-                            //connect still in progress,add the fd to fdset_write and fdset_read
-                            FD_SET(sock_to_send, &fdset_read);
-                            FD_SET(sock_to_send, &fdset_write);
-                            childfd_PORTfd fd_struct = {*i, sock_to_send};
-                            fd_array_connecting.push_back(fd_struct);
-                            if (sock_to_send > maxfd)
-                                maxfd = sock_to_send;
-                            ftp_log(FTP_LOG_DEBUG, "a PORT connect is in progress");
+                            close(sockaccept);
+                            continue;
+                        }
+                    }
+                } else
+                {
+                    //PORT requests from child
+                    struct sockaddr_in sockaddr, socklocal;
+                    if (recv_request(fd, &sockaddr))
+                    {
+                        memset(&socklocal, 0, sizeof(socklocal));
+                        socklocal.sin_port = htons(20);
+                        socklocal.sin_family = AF_INET;
+                        socklocal.sin_addr.s_addr = sockaddr.sin_addr.s_addr;
+                        int sock_to_send = socket(AF_INET, SOCK_STREAM | O_NONBLOCK, 0);
+                        int flag = 1;
+                        setsockopt(sock_to_send, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int));
+                        bind(sock_to_send, (struct sockaddr *) &socklocal, sizeof(socklocal));
+                        struct timeval timeout{conf->conf_transmission_timeout, 0};
+                        set_send_timeout(sock_to_send, &timeout);//set connect timeout to avoid occupying resources
+                        if (connect(sock_to_send, (struct sockaddr *) &sockaddr, sizeof(struct sockaddr_in)) == -1)
+                        {
+                            if (errno != EINPROGRESS)
+                            {
+                                ftp_log(FTP_LOG_WARNING, "error while connecting with PORT mode.");
+                                send_fd(fd, -1);
+                                close(sock_to_send);
+                            } else
+                            {
+                                //connect still in progress,add the fd to fdset_write and fdset_read
+                                epoll_event event;
+                                event.events = EPOLLOUT;
+                                if (!(event.data.ptr = malloc(sizeof(fd_data))))
+                                {
+                                    ftp_log(FTP_LOG_ERR, "malloc error.");
+                                }
+                                *((fd_data *) event.data.ptr) = {sock_to_send, fd};
+                                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock_to_send, &event))
+                                {
+                                    ftp_log(FTP_LOG_ERR, "epoll_ctl error while adding fd.");
+                                }
+                                ftp_log(FTP_LOG_DEBUG, "a PORT connect is in progress");
+                            }
+                        } else
+                        {
+                            //connect finished immediately
+                            //don't forget to restore the fd to blocking I/O
+                            fcntl(sock_to_send, F_SETFL, fcntl(sock_to_send, F_GETFL, 0) & ~O_NONBLOCK);
+                            send_fd(fd, sock_to_send);
+                            close(sock_to_send);
                         }
                     } else
                     {
-                        //connect finished immediately
-                        //don't forget to restore the fd to blocking I/O
-                        fcntl(sock_to_send, F_SETFL, fcntl(sock_to_send, F_GETFL, 0) & ~O_NONBLOCK);
-                        send_fd(*i, sock_to_send);
-                        close(sock_to_send);
+                        //child closed,remove fd
+                        free(epoll_events[i].data.ptr);
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+                        close(fd);
+                        ftp_log(FTP_LOG_DEBUG, "one client deleted");
                     }
-                    ++i;
-                } else
-                {
-                    //child closed,remove fd
-                    close(*i);
-                    FD_CLR(*i, &fdset_read);
-                    ftp_log(FTP_LOG_DEBUG, "one client deleted");
-                    fd_array.erase(i);
                 }
             } else
-                ++i;
-        }
-        for (auto i = fd_array_connecting.begin(); i != fd_array_connecting.end();)
-        {
-            //handle the connecting fds, check whether connected or failed
-            if (FD_ISSET((*i).PORT_fd, &result_read) || FD_ISSET((*i).PORT_fd, &result_write))
             {
+                //case for connecting sockets
                 int error;
                 socklen_t len = sizeof(int);
-                getsockopt((*i).PORT_fd, SOL_SOCKET, SO_ERROR, &error, &len);
+                getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len);
                 if (error)
                 {
                     //timeout, close it
                     ftp_log(FTP_LOG_WARNING, "error while connecting with PORT mode.");
-                    send_fd((*i).child_fd, -1);
+                    send_fd(child_fd, -1);
                 } else
                 {
                     //connected, now we can pass the fd to child
                     //don't forget to restore the fd to blocking I/O
-                    fcntl((*i).PORT_fd, F_SETFL, fcntl((*i).PORT_fd, F_GETFL, 0) & ~O_NONBLOCK);
-                    send_fd((*i).child_fd, (*i).PORT_fd);
+                    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) & ~O_NONBLOCK);
+                    send_fd(child_fd, fd);
                 }
-                close((*i).PORT_fd);
-                FD_CLR((*i).PORT_fd, &fdset_read);
-                FD_CLR((*i).PORT_fd, &fdset_write);
-                fd_array_connecting.erase(i);
-            } else
-                ++i;
+                free(epoll_events[i].data.ptr);
+                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+                close(fd);
+            }
         }
     }
     free(conf);

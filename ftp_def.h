@@ -9,6 +9,7 @@
 #include <openssl/ssl.h>
 
 #define FTP_BUFF_SIZE 4096
+#define FTP_EPOLL_EVENT_NUM 1024
 
 #define FTP_READY 220
 #define FTP_QUIT_INET 221
