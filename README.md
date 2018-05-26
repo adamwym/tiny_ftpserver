@@ -1,4 +1,4 @@
-# tiny_ftpserver [![Build Status](https://travis-ci.org/adamwym/tiny_ftpserver_fork.svg?branch=master)](https://travis-ci.org/adamwym/tiny_ftpserver_fork)
+# tiny_ftpserver [![Build Status](https://travis-ci.org/adamwym/tiny_ftpserver.svg?branch=master)](https://travis-ci.org/adamwym/tiny_ftpserver)
 A tiny version of FTP server written in c++
  ## Supported features
 * Both PORT mode and PASV mode
