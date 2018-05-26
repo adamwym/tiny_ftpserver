@@ -1,0 +1,9 @@
+language: cpp
+before_install:
+- sudo apt-get update -qq
+- sudo apt-get install -qq openssl libssl-dev libglib2.0-dev libnet-dev
+compiler: gcc
+script:
+- mkdir build && cd build
+- cmake ..
+- make tiny_ftpserver
