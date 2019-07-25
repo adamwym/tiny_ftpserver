@@ -56,6 +56,7 @@ void ftp_session::ftp_init()
     ftp = this;
     signal(SIGURG, sigurg_handler);
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGHUP, SIG_IGN);
     if (fcntl(m_ctl_socket, F_SETOWN, getpid()) == -1)
     {
         ftp_log(FTP_LOG_ERR, "set fd owner error");

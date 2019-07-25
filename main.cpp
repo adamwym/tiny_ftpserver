@@ -147,6 +147,21 @@ void read_conf()
         {
             max_clients = 0;
         }
+        if (conf_has_key(CONF_LISTEN_PORT))
+        {
+            if (conf->conf_listen_port)
+            {
+                //not be called for startup
+                if (conf->conf_listen_port != conf_get_int(CONF_LISTEN_PORT))
+                    ftp_log(FTP_LOG_WARNING, "Changing of listening port is ignored,restart required");
+            } else
+            {
+                conf->conf_listen_port = conf_get_int(CONF_LISTEN_PORT);
+                ftp_log(FTP_LOG_DEBUG, "listening port %d", conf->conf_listen_port);
+            }
+        } else if (conf->conf_listen_port == 0)
+            conf->conf_listen_port = 21;
+
 
         if (!conf_has_key(CONF_ANON_LOGIN_AS) ||
             !(conf->conf_anon_login_as = getpwnam(conf_get_string(CONF_ANON_LOGIN_AS))))
@@ -185,7 +200,7 @@ int main(int _argc, char **_argv)
     int socketfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_port = htons(21);
+    server_addr.sin_port = htons(uint16_t(conf->conf_listen_port));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     int flag = 1;
@@ -255,6 +270,7 @@ int main(int _argc, char **_argv)
                         maxfd = fd[0];
                     FD_SET(fd[0], &fdset_read);
                     fd_array.push_back(fd[0]);
+
                     ++current_clients;
                 } else
                 {

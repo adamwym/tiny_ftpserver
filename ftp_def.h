@@ -102,6 +102,7 @@ enum
 #define CONF_RSA_PRIVATE_KEY_FILE "rsa_private_key_file"
 #define CONF_FORCE_ANON_LOGINS_SSL "force_anon_logins_ssl"
 #define CONF_MAX_CLIENTS "max_clients"
+#define CONF_LISTEN_PORT "listen_port"
 
 struct conf_status
 {
@@ -118,5 +119,6 @@ struct conf_status
     struct passwd *conf_anon_login_as = NULL;
     SSL_CTX *conf_ctx = NULL;
     bool conf_force_anon_logins_ssl = 0;
+    int conf_listen_port = 0;
 };
 #endif //TINY_FTPSERVER_FTP_DEF_H
